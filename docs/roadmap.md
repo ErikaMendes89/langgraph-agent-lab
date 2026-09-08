@@ -1,7 +1,9 @@
 # Roadmap de aprendizado
 
 As versões representam etapas aproximadas de estudo, sem promessa de prontidão para
-produção. A v0.1 é a única implementação atual. A v0.2 aguarda aprovação.
+produção. A v0.1 está preservada no modo `demo`. A v0.2 implementa uma rodada fixa de
+tool calling com Ollama e logs fictícios. A execução com um modelo real ainda precisa
+ser validada localmente; os testes usam respostas controladas.
 
 | Versão | Escopo proposto | Critério de conclusão |
 | --- | --- | --- |
@@ -23,4 +25,4 @@ fase serão definidos a partir do aprendizado e da revisão da etapa anterior.
 - Executar testes, lint, verificação de formato e checagem de tipos.
 - Revisar secrets, `.gitignore`, alterações e documentação antes de qualquer commit.
 - Usar dados fictícios e nunca versionar `.env`, tokens ou API keys.
-- Aprovar explicitamente o início da v0.2; não fazer push automaticamente.
+- Revisar a v0.2 antes de avançar para roteamento condicional; não fazer push automaticamente.

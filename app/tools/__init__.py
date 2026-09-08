@@ -1,1 +1,1 @@
-"""Reservado para ferramentas futuras; nenhuma implementada na v0.1."""
+"""Ferramentas educacionais com dados sintéticos."""

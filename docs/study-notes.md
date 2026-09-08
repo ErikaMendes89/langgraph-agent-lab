@@ -1,4 +1,7 @@
-# Notas de estudo — v0.1
+# Notas de estudo — v0.1 e v0.2
+
+As primeiras seções registram o exemplo inicial, preservado no modo `demo`. A seção
+da v0.2 mostra a evolução do código para tool calling com um modelo local.
 
 ## O que é um StateGraph
 
@@ -95,3 +98,88 @@ um valor vazio. Leia os testes para comparar erro de configuração e erro no n�
 Explique por que `request` continua no resultado mesmo sem ser retornado por `agent`.
 
 Referência: [Graph API oficial](https://docs.langchain.com/oss/python/langgraph/use-graph-api).
+
+## v0.2 — Do pedido de ferramenta à resposta
+
+Nesta etapa, estou praticando a diferença entre o modelo **solicitar** uma ferramenta
+e o programa **executá-la**. Em `app/agents/graph.py`:
+
+```python
+builder.add_node("agent", partial(request_logs, model=model.bind_tools([search_logs])))
+builder.add_node("tools", ToolNode([search_logs], handle_tool_errors=False))
+builder.add_node("summarize", partial(summarize, model=model))
+```
+
+`bind_tools` informa ao modelo o nome, a descrição e o schema da ferramenta. Isso não
+executa `search_logs`. `partial` fixa o argumento `model` da função, deixando o estado
+para ser fornecido pelo grafo; não é uma nova camada de serviços.
+
+Uma resposta controlada usada em `tests/test_tool_graph.py` mostra o protocolo:
+
+```python
+AIMessage(
+    content="",
+    tool_calls=[{"name": "search_logs", "args": {"order_id": "123"}, "id": "call-1"}],
+)
+```
+
+O `ToolNode` executa a ferramenta registrada e produz um `ToolMessage` com
+`tool_call_id="call-1"`. Esse identificador liga o resultado à solicitação original.
+O teste `test_tool_round_trip_passes_evidence_back_to_model` verifica que o resultado
+real da tool, serializado como JSON, chega à segunda chamada do modelo.
+
+## Histórico de mensagens no state
+
+O estado ganhou este campo em `app/agents/state.py`:
+
+```python
+messages: NotRequired[Annotated[list[BaseMessage], add_messages]]
+```
+
+`add_messages` é um reducer: combina a atualização com o histórico existente em vez
+de substituir a lista inteira. Mensagens com o mesmo ID são atualizadas. Neste fluxo,
+o histórico acumula mensagem de sistema, solicitação humana, pedido de ferramenta,
+resultado da ferramenta e síntese final. `response` continua sendo a saída da CLI.
+
+`summarize` troca a instrução de sistema enviada na segunda chamada para pedir uma
+síntese baseada nas evidências. O histórico armazenado mantém a mensagem inicial.
+Não existe memória persistente: a próxima chamada com somente `request` começa de novo.
+
+## Schema e erros também fazem parte do aprendizado
+
+`SearchLogsInput`, em `app/tools/logs.py`, usa Pydantic com modo estrito e proíbe campos
+extras. `order_id` deve ser uma string de 1 a 12 dígitos. Essa é uma escolha para o
+exercício, não uma regra de um sistema real. A consulta retorna dados novos a cada
+chamada, impedindo que uma alteração no resultado contamine a próxima execução.
+
+Aprendi também que `ToolNode` encapsula a falha de validação em `ToolInvocationError`,
+mantendo `ValidationError` como causa. Com `handle_tool_errors=False`, ela interrompe
+o fluxo em vez de virar uma resposta que o modelo poderia tentar corrigir. A CLI
+mostra uma mensagem explícita. O teste verifica o erro e sua causa.
+
+O grafo exige exatamente uma chamada válida. Uma resposta sem tool call é um erro
+nesta versão, e não uma rota alternativa. Isso mantém o foco na v0.2: escolher entre
+ferramenta e resposta final será o exercício de roteamento condicional da v0.3.
+
+## Decisões da v0.2
+
+- **Ollama local:** permite experimentar sem API key; exige servidor e modelo instalados.
+- **Modo demo preservado:** posso revisitar a v0.1 sem precisar iniciar um modelo.
+- **Logs sintéticos:** pratico o protocolo sem consultar dados pessoais ou sistemas reais.
+- **Fluxo fixo:** duas chamadas ao modelo e uma à tool, sem loop de agente ainda.
+- **Síntese sem tools:** a segunda chamada usa o modelo original; novas tool calls são rejeitadas.
+- **Testes isolados:** respostas controladas substituem apenas o modelo. O grafo e a tool
+  continuam reais, mas isso não mede a capacidade do Qwen3 de seguir instruções.
+- **Dependências explícitas:** `langchain-ollama` integra o provedor; `langchain-core` e
+  `pydantic`, já transitivas, passam a ser declaradas por serem importadas diretamente.
+
+## Experimentos seguintes
+
+Com Ollama instalado, comparar os pedidos `123` e `456`, observando a diferença entre
+evidência fictícia e ausência de evidência. Tentar uma solicitação sem ID e observar
+se o modelo respeita a instrução de não inventar um pedido. Essa última propriedade
+ainda não é garantida pelo código. Registrar falhas, latência e versões do modelo
+antes de tirar conclusões sobre sua qualidade.
+
+Referências: [tools e ToolNode](https://docs.langchain.com/oss/python/langchain/tools)
+e [ChatOllama](https://docs.langchain.com/oss/python/integrations/chat/ollama).

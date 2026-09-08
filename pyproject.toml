@@ -4,11 +4,16 @@ build-backend = "hatchling.build"
 
 [project]
 name = "langgraph-agent-lab"
-version = "0.1.0"
+version = "0.2.0"
 description = "Laboratório educacional de workflows de agentes com LangGraph"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = ["langgraph>=1.0,<2"]
+dependencies = [
+    "langgraph>=1.0,<2",
+    "langchain-core>=1.4.7,<2",
+    "langchain-ollama>=1,<2",
+    "pydantic>=2.7.4,<3",
+]
 
 [project.optional-dependencies]
 dev = ["pytest>=8,<10", "ruff>=0.12,<1", "mypy>=1.15,<2"]

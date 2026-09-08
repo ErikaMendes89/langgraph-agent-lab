@@ -2,18 +2,32 @@
 
 import sys
 
+from langgraph.prebuilt.tool_node import ToolInvocationError
+
 from app.agents.graph import build_graph
-from app.core.config import get_request
+from app.agents.tool_nodes import ModelResponseError
+from app.core.config import get_mode, get_model_name, get_request
+from app.core.model import create_model
 
 
 def main() -> int:
     try:
         request = get_request()
+        mode = get_mode()
+        model_name = get_model_name() if mode == "ollama" else None
     except ValueError as exc:
         print(f"Erro de configuração: {exc}", file=sys.stderr)
         return 1
 
-    result = build_graph().invoke({"request": request})
+    model = create_model(model_name) if model_name is not None else None
+    try:
+        result = build_graph(model).invoke({"request": request})
+    except ModelResponseError as exc:
+        print(f"Erro na resposta do modelo: {exc}", file=sys.stderr)
+        return 1
+    except ToolInvocationError:
+        print("Erro na ferramenta: o modelo forneceu argumentos inválidos.", file=sys.stderr)
+        return 1
     print(result["response"])
     return 0
 
