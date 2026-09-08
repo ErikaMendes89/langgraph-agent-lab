@@ -1,0 +1,1 @@
+"""Laboratório educacional de agentes."""
