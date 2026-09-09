@@ -4,8 +4,9 @@ As versões representam etapas aproximadas de estudo, sem promessa de prontidão
 produção. A v0.1 está preservada no modo `demo`; a v0.2 introduziu tool calling com
 Ollama e logs fictícios. A v0.3 adiciona a escolha entre consulta e resposta direta,
 com testes de ambas as rotas. A execução local com Ollama produziu um relatório,
-conforme observado pela autora. A comparação dos cenários com logs, sem logs e sem ID
-ainda está pendente com o modelo real; os testes usam respostas controladas.
+conforme observado pela autora. A comparação dos três cenários com o modelo real
+está registrada em [validation-v0.4.md](validation-v0.4.md): o pedido 456 revelou
+uma afirmação sem consulta. Os testes automatizados usam respostas controladas.
 
 | Versão | Escopo proposto | Critério de conclusão |
 | --- | --- | --- |
@@ -25,11 +26,19 @@ fase serão definidos a partir do aprendizado e da revisão da etapa anterior.
 
 Primeiro incremento da v0.4: timeout de comunicação com o Ollama e mensagens de
 conexão indisponível/timeout na CLI, com saída 1 e sem relatório parcial. Os testes
-simulam falhas tanto no agente quanto na síntese. Limite total de duração e retries
-limitados continuam pendentes; este incremento não conclui a v0.4.
+simulam falhas tanto no agente quanto na síntese. O segundo incremento adiciona
+no máximo duas tentativas por nó do modelo para falhas de conexão ou timeout,
+sem repetir ferramentas. O terceiro incremento aplica prazo total de 300 segundos
+na CLI, com cancelamento assíncrono e testes de expiração no agente, na síntese
+e durante retries. A revisão confirmou cobertura dos controles de execução, mas
+o teste real encontrou uma lacuna de evidência na rota direta. O quarto incremento
+introduz ID estruturado com consulta obrigatória e substitui respostas sem ferramenta
+por orientação fixa quando o ID não é configurado. O quinto incremento responde
+de forma determinística quando a consulta não retorna logs, evitando hipóteses
+sem evidência e dispensando a segunda chamada ao modelo.
 
 - Entender e explicar o estado e cada transição.
 - Executar testes, lint, verificação de formato e checagem de tipos.
 - Revisar secrets, `.gitignore`, alterações e documentação antes de qualquer commit.
 - Usar dados fictícios e nunca versionar `.env`, tokens ou API keys.
-- Continuar a v0.4 com limites e retries após revisar o incremento de timeout.
+- Revisar o contrato de ID explícito e a validação da correção antes da v0.5.

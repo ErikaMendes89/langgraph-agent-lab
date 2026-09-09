@@ -279,3 +279,76 @@ Validação deste incremento: 57 testes aprovados, Ruff (lint e formato), mypy e
 
 Referências: [timeouts do HTTPX](https://www.python-httpx.org/advanced/timeouts/) e
 [client_kwargs do ChatOllama](https://reference.langchain.com/python/langchain-ollama/chat_models/ChatOllama/client_kwargs).
+
+## v0.4 — Segundo incremento: retries limitados
+
+A política nativa `RetryPolicy` foi aplicada somente a `agent` e `summarize`.
+`max_attempts=2` inclui a primeira chamada: há somente uma repetição, após 0,5 segundo,
+para falhas de conexão ou timeout. Validações, erros de protocolo e outros erros
+não disparam essa política. A ferramenta não tem retry.
+
+Um timeout pode ocorrer depois de o servidor começar a gerar a resposta. Repetir
+a chamada pode aumentar o trabalho do Ollama e produzir uma resposta diferente.
+A política é restrita aos nós do modelo, que não executam efeitos de negócio.
+Na síntese, o retry reutiliza a evidência já obtida e não executa a ferramenta novamente.
+
+Os testes verificam recuperação, esgotamento das duas tentativas, falha da ferramenta
+sem repetição e retries nos dois nós sem duplicar as atualizações do estado.
+O prazo total continua pendente: cancelar a espera de uma chamada síncrona não
+garante interromper o trabalho subjacente. Esse controle exige revisar cancelamento.
+
+Referência: [RetryPolicy do LangGraph](https://reference.langchain.com/python/langgraph/types/RetryPolicy).
+
+## v0.4 — Terceiro incremento: prazo total e cancelamento
+
+`run_investigation` envolve `graph.ainvoke` em `asyncio.timeout(300)`. Um único
+prazo cobre a execução inteira, incluindo a espera por retries. Ao expirar, a
+CLI mostra uma mensagem em stderr e retorna 1 sem relatório parcial.
+
+Para o cancelamento chegar à operação HTTP, os nós ganharam versões assíncronas
+que chamam `model.ainvoke`. `RunnableLambda` seleciona a versão apropriada; prompts
+e validações são compartilhados, preservando também o uso síncrono do grafo.
+O modo demo continua síncrono. O prazo é aplicado pelo executor, não pelo grafo isolado.
+
+O cancelamento é cooperativo: encerra a chamada assíncrona no cliente, mas não
+comprova interrupção imediata da geração no servidor Ollama. Código bloqueante
+e ferramentas externas exigem revisão própria; a ferramenta atual apenas lê dados
+fictícios em memória. O parâmetro `timeout_seconds` do executor permite ajustar
+o prazo no uso programático, aceitando somente números positivos e finitos.
+
+Os testes verificam cancelamento no agente e na síntese, expiração durante a espera
+por retry e propagação de outros `TimeoutError`. O ChatOllama real é exercitado com
+envio HTTP simulado para comprovar o caminho assíncrono sem depender do servidor.
+A CLI também é testada com respostas assíncronas controladas.
+
+Referências: [asyncio.timeout](https://docs.python.org/3/library/asyncio-task.html#asyncio.timeout)
+e [RunnableLambda](https://reference.langchain.com/python/langchain-core/runnables/base/RunnableLambda).
+
+## v0.4 — Quarto incremento: consulta obrigatória para ID explícito
+
+O modelo afirmou ausência de logs do pedido 456 sem consultar a ferramenta.
+A correção usa um campo estruturado opcional `order_id`, lido na CLI por
+`INCIDENT_LAB_ORDER_ID`. Não tenta inferir intenção por palavras-chave.
+
+Quando o campo está presente, o grafo rejeita respostas diretas e consultas a outro
+ID, sem retry de protocolo. Sem o campo, uma resposta sem ferramenta produz apenas
+uma orientação fixa, nunca a afirmação livre do modelo. Tool calling guiado pelo
+texto continua disponível como experimento; o ID estruturado é a forma de exigir
+a consulta e vincular os argumentos ao pedido desejado.
+
+Prompts e validações são compartilhados pelas versões síncrona e assíncrona.
+Os testes reproduzem a afirmação falsa original, a troca de ID, ausência de tool,
+IDs inválidos e consultas aos pedidos 123 e 456. A síntese ainda pode conter erros
+semânticos: exigir uma evidência não comprova a qualidade da interpretação.
+
+## v0.4 — Quinto incremento: ausência de evidências
+
+O teste real do pedido 456 consultou corretamente, mas a síntese ainda sugeriu
+hipóteses sem apoio. Agora as versões síncrona e assíncrona da síntese verificam
+o resultado da ferramenta antes de chamar o modelo. Uma lista de logs vazia
+produz uma resposta fixa e encerra. Não é necessário usar um LLM para interpretar
+a ausência de registros.
+
+O tratamento diferencia lista vazia de resultado ausente, erro da ferramenta ou
+JSON malformado. Os testes de consulta 123 continuam exercitando a síntese com
+modelo; os de 456 verificam que não ocorre a segunda chamada.

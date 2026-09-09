@@ -1,9 +1,21 @@
 """Configuração via ambiente, usando somente a biblioteca padrão."""
 
 import os
+import re
 from typing import Literal
 
 DEFAULT_REQUEST = "Investigue por que o pedido 123 apresentou inconsistência e gere um relatório."
+
+
+def validate_order_id(value: str) -> str:
+    if not isinstance(value, str) or re.fullmatch(r"[0-9]{1,12}", value) is None:
+        raise ValueError("INCIDENT_LAB_ORDER_ID deve conter de 1 a 12 dígitos ASCII.")
+    return value
+
+
+def get_order_id() -> str | None:
+    value = os.environ.get("INCIDENT_LAB_ORDER_ID")
+    return None if value is None else validate_order_id(value)
 
 
 def get_request() -> str:

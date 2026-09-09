@@ -17,7 +17,9 @@ Na **v0.2**, adicionei tool calling para consultar logs fictícios e resumir o r
 Na **v0.3**, estou praticando roteamento condicional: o modelo pode responder diretamente
 ou solicitar a consulta. Ainda não há investigação de dados reais nem geração de arquivo
 de relatório. O exemplo inicial continua no modo `demo`. O primeiro incremento da **v0.4** adiciona
-timeout de comunicação e tratamento de falhas de conexão na CLI.
+timeout de comunicação e tratamento de falhas de conexão na CLI. O segundo adiciona
+uma nova tentativa por nó do modelo para falhas de conexão ou timeout. O terceiro
+limita a execução da CLI a 300 segundos, com cancelamento assíncrono.
 
 ## O que é LangGraph
 
@@ -43,8 +45,9 @@ flowchart LR
 o modelo local. `tool_nodes.py` chama o modelo, escolhe a rota e sintetiza as evidências;
 `app/tools/logs.py` contém `search_logs`. `evals/` permanece reservado para a v0.6.
 
-Na rota direta há uma chamada ao modelo e nenhuma ferramenta. Na rota de consulta há
-duas chamadas ao modelo e uma à ferramenta. As duas terminam sem loops.
+Sem falhas, na rota direta há uma chamada ao modelo e nenhuma ferramenta. Na rota de consulta há
+duas chamadas ao modelo e uma à ferramenta. Com retries, são no máximo duas tentativas
+na rota direta e quatro na rota de consulta; a ferramenta executa no máximo uma vez.
 O modo `demo` mantém `START -> agent -> END`, sem usar LLM.
 
 ## Arquitetura planejada
@@ -96,6 +99,7 @@ Com o servidor disponível em `http://localhost:11434`, execute:
 ollama pull qwen3:1.7b
 export INCIDENT_LAB_MODE=ollama
 export INCIDENT_LAB_MODEL=qwen3:1.7b
+export INCIDENT_LAB_ORDER_ID=123
 export INCIDENT_LAB_REQUEST="Investigue o pedido 123."
 python -m app.main
 ```
@@ -111,32 +115,51 @@ Referências: [modelo](https://ollama.com/library/qwen3:1.7b) e
 fictícios: pagamento aprovado e falha simulada na atualização do pedido. Outros IDs
 retornam uma lista vazia. Esses eventos são um exercício, não regras de negócio reais.
 
-O modelo pode responder em texto ou solicitar uma consulta. Quando retorna texto sem
-tool call, o grafo encerra com essa resposta. Uma ferramenta desconhecida, argumentos
+`INCIDENT_LAB_ORDER_ID` define o pedido da investigação (1 a 12 dígitos ASCII).
+Quando configurado, o modelo deve consultar exatamente esse ID: resposta sem consulta
+ou consulta a outro ID encerra com erro, sem relatório. Esse campo prevalece sobre
+um ID divergente no texto; mantenha ambos consistentes. No uso programático, passe
+`order_id` para `run_investigation` ou no estado de entrada do grafo.
+
+Sem esse campo, permanece o tool calling experimental guiado pelo texto. Se o modelo
+não chamar a ferramenta, a CLI apresenta uma orientação fixa de escopo e solicita
+o ID estruturado; o texto livre do modelo não é exibido como investigação.
+Uma ferramenta desconhecida, argumentos
 inválidos, múltiplas chamadas, texto final vazio ou novas chamadas na síntese encerram
 a execução com erro.
-Falhas de conexão e timeout encerram a CLI com código 1 e mensagem em stderr,
+Após esgotar as tentativas, falhas de conexão e timeout encerram a CLI com código 1 e mensagem em stderr,
 sem imprimir um relatório parcial. Inicie o servidor com `ollama serve` em outro
 terminal e verifique se `ollama list` mostra o modelo configurado.
 O primeiro incremento da v0.4 configura 5 segundos para conectar e 120 segundos
 para leitura, escrita e espera por conexão disponível. O timeout de leitura limita
-a espera entre blocos recebidos, não a duração total do grafo. Não há retry automático;
-falhas inesperadas continuam sendo propagadas para diagnóstico.
+a espera entre blocos recebidos, não a duração total do grafo. Cada nó do modelo tem
+no máximo duas tentativas para conexão recusada ou timeout, com intervalo de 0,5 segundo.
+Falhas de validação não são repetidas; um retry da síntese reutiliza a evidência existente.
+Além dos timeouts de rede, a CLI usa um prazo total de 300 segundos que inclui
+ambos os nós do modelo, a ferramenta e a espera por retries. Ao expirar, cancela
+a chamada assíncrona do cliente e encerra com código 1, sem relatório parcial.
+Isso não garante que o servidor Ollama interrompa imediatamente a geração.
+O prazo usa cancelamento cooperativo: código síncrono bloqueante em futuras
+ferramentas exigirá outro controle. O uso direto de `build_graph().invoke/ainvoke`
+não aplica esse prazo; para isso, use `run_investigation` em `app/core/execution.py`.
+Falhas inesperadas continuam sendo propagadas para diagnóstico.
 O HTTPX, já usado pela integração Ollama, é declarado como dependência direta porque
 o aplicativo agora importa sua configuração de timeout e suas exceções.
 
 Para experimentar a rota direta, com o modo `ollama` ativo:
 
 ```bash
+unset INCIDENT_LAB_ORDER_ID
 export INCIDENT_LAB_REQUEST="Investigue uma inconsistência."
 python -m app.main
 ```
 
-A instrução ao modelo é pedir o ID ausente sem consultar ferramentas. Outra experiência
+Sem ID configurado, a resposta sem ferramenta vira uma orientação fixa, mesmo que
+o modelo alegue ter investigado. Outra experiência
 é perguntar “O que você pode fazer?”. A rota depende da resposta efetiva do modelo,
 não de palavras-chave na solicitação; esses exemplos não garantem o comportamento de
 um LLM real. Um pedido de esclarecimento encerra esta execução: para informar o ID,
-é preciso executar novamente com a solicitação completa, pois ainda não há conversa persistente.
+é preciso configurar `INCIDENT_LAB_ORDER_ID` e executar novamente, pois ainda não há conversa persistente.
 
 Use apenas dados fictícios: a solicitação e as evidências são enviadas ao servidor
 local e a síntese aparece no terminal. Para voltar ao exemplo inicial:
@@ -192,7 +215,7 @@ consulta por execução. Os demais controles são metas de estudo, não garantia
 - A decisão de consultar é do modelo; não há garantia de que ele escolha a rota adequada.
 - A síntese pode conter erros do modelo; não há verificação semântica de suas afirmações.
 - Estado somente na invocação; sem persistência, memória entre execuções ou checkpoint.
-- Sem autenticação, autorização, retry, limite total de duração do grafo, aprovação humana
+- Sem autenticação, autorização, aprovação humana
   ou tracing configurados. Há timeout de comunicação com o Ollama.
 - Validação básica da solicitação e schema da tool; TypedDict não valida estado em runtime.
 - Sem avaliações de qualidade de agentes, uso em produção ou métricas de tokens/custo.
@@ -213,6 +236,21 @@ consulta por execução. Os demais controles são metas de estudo, não garantia
 | v1.0 | Complete incident investigation agent |
 
 Detalhes e critérios de conclusão em [roadmap.md](docs/roadmap.md).
-A execução local com Ollama já produziu um relatório no terminal. Ainda preciso comparar
-os cenários com logs, sem logs e sem ID com o modelo real e revisar os conceitos nas
+Os três cenários foram executados com Ollama: o pedido 123 e a solicitação sem ID
+seguiram o comportamento esperado, mas o pedido 456 recebeu uma afirmação sem consulta.
+O contrato de ID explícito e a orientação fixa corrigem a saída sem evidência.
+O histórico e a validação da correção estão em [validation-v0.4.md](docs/validation-v0.4.md).
+Os conceitos estudados estão nas
 [notas de estudo](docs/study-notes.md).
+
+## Resposta quando não há logs
+
+Quando `search_logs` retorna uma lista vazia, o nó `summarize` encerra com uma
+resposta determinística, sem nova chamada ao modelo: não há registros para
+determinar causa ou status, e ausência de logs não comprova inexistência do pedido.
+A consulta continua sendo obrigatória para o ID configurado. Resultado ausente,
+JSON inválido, campo `logs` inválido ou erro da ferramenta não viram sucesso.
+
+Nesse caminho há uma chamada ao modelo para solicitar a consulta (até duas
+tentativas com retry) e uma consulta à ferramenta. Com logs, a síntese continua
+usando o modelo e mantém os riscos de interpretação já documentados.

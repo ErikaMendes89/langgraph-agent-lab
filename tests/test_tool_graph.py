@@ -3,13 +3,14 @@ from typing import cast
 from unittest.mock import Mock
 
 import pytest
+from httpx import ConnectError, ReadTimeout
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, ToolMessage
 from langgraph.prebuilt.tool_node import ToolInvocationError
 from pydantic import ValidationError
 
 from app.agents.graph import build_graph
-from app.agents.tool_nodes import ModelResponseError
+from app.agents.tool_nodes import DIRECT_GUIDANCE, ModelResponseError
 from app.tools.logs import search_logs
 
 
@@ -46,11 +47,11 @@ def test_tool_round_trip_passes_evidence_back_to_model() -> None:
     assert "dados inteiramente fictícios" in result["response"]
 
 
-def test_unknown_order_passes_empty_evidence_to_model() -> None:
+def test_unknown_order_returns_no_evidence_without_second_model_call() -> None:
     model = scripted_model(tool_reply("456"), AIMessage(content="Sem evidências disponíveis."))
-    build_graph(cast(BaseChatModel, model)).invoke({"request": "Investigue o pedido 456."})
-    evidence = model.invoke.call_args_list[1].args[0][-1]
-    assert json.loads(evidence.content)["logs"] == []
+    result = build_graph(cast(BaseChatModel, model)).invoke({"request": "Investigue o pedido 456."})
+    assert "não retornou registros" in result["response"]
+    assert model.invoke.call_count == 1
 
 
 @pytest.mark.parametrize(
@@ -90,9 +91,10 @@ def test_summary_rejects_empty_text_or_further_tools(reply: AIMessage) -> None:
 
 
 def test_provider_failure_is_not_hidden() -> None:
-    model = scripted_model(ConnectionError("Servidor indisponível"))
+    model = scripted_model(*[ConnectionError("Servidor indisponível")] * 2)
     with pytest.raises(ConnectionError, match="Servidor indisponível"):
         build_graph(cast(BaseChatModel, model)).invoke({"request": "pedido 123"})
+    assert model.invoke.call_count == 2
 
 
 def test_invalid_request_does_not_call_model() -> None:
@@ -130,7 +132,7 @@ def test_direct_response_ends_without_tool_or_second_model_call(prompt: str, ans
     )
     assert [list(update) for update in updates] == [["agent"]]
     output = updates[0]["agent"]
-    assert output["response"].endswith(answer)
+    assert output["response"].endswith(DIRECT_GUIDANCE)
     assert "dados inteiramente fictícios" in output["response"]
     assert len(output["messages"]) == 3
     assert not any(isinstance(message, ToolMessage) for message in output["messages"])
@@ -164,12 +166,12 @@ def test_route_is_recomputed_for_each_invocation() -> None:
     graph.invoke({"request": "pedido 123"})
     direct = graph.invoke({"request": "Investigue uma inconsistência."})
     assert len(direct["messages"]) == 3
-    assert direct["response"].endswith("Qual pedido?")
+    assert direct["response"].endswith(DIRECT_GUIDANCE)
     final = graph.invoke({"request": "pedido 456"})
     assert len(final["messages"]) == 5
-    assert final["response"].endswith("Sem evidências para o segundo pedido.")
+    assert "não retornou registros" in final["response"]
     assert "Primeira síntese" not in str(final["messages"])
-    assert model.invoke.call_count == 5
+    assert model.invoke.call_count == 4
 
 
 def test_malformed_tool_call_with_text_is_not_treated_as_direct_response() -> None:
@@ -180,4 +182,52 @@ def test_malformed_tool_call_with_text_is_not_treated_as_direct_response() -> No
     model = scripted_model(reply)
     with pytest.raises(ModelResponseError):
         build_graph(cast(BaseChatModel, model)).invoke({"request": "pedido 123"})
+    assert model.invoke.call_count == 1
+
+
+@pytest.mark.parametrize("error", [ConnectError("offline"), ReadTimeout("slow")])
+def test_agent_recovers_from_transient_failure(error: Exception) -> None:
+    model = scripted_model(error, AIMessage(content="Qual pedido?"))
+    result = build_graph(cast(BaseChatModel, model)).invoke({"request": "Investigue"})
+    assert result["response"].endswith(DIRECT_GUIDANCE)
+    assert len(result["messages"]) == 3
+    assert model.invoke.call_count == 2
+
+
+def test_retries_in_both_nodes_do_not_repeat_tool_or_duplicate_history() -> None:
+    model = scripted_model(
+        ConnectError("offline"),
+        tool_reply(),
+        ReadTimeout("slow"),
+        AIMessage(content="Falha simulada."),
+    )
+    updates = list(
+        build_graph(cast(BaseChatModel, model)).stream(
+            {"request": "pedido 123"}, stream_mode="updates"
+        )
+    )
+    assert [list(update) for update in updates] == [["agent"], ["tools"], ["summarize"]]
+    assert model.invoke.call_count == 4
+    assert model.invoke.call_args_list[2].args == model.invoke.call_args_list[3].args
+    messages = updates[-1]["summarize"]["messages"]
+    assert len(messages) == 1
+    assert updates[-1]["summarize"]["response"].endswith("Falha simulada.")
+
+
+def test_retry_exhaustion_does_not_use_a_third_attempt() -> None:
+    model = scripted_model(
+        ReadTimeout("first"), ReadTimeout("second"), AIMessage(content="Too late")
+    )
+    with pytest.raises(ReadTimeout, match="second"):
+        build_graph(cast(BaseChatModel, model)).invoke({"request": "pedido 123"})
+    assert model.invoke.call_count == 2
+
+
+def test_tool_failure_is_not_retried(monkeypatch: pytest.MonkeyPatch) -> None:
+    execute = Mock(side_effect=ConnectionError("tool failure"))
+    monkeypatch.setattr(search_logs, "func", execute)
+    model = scripted_model(tool_reply())
+    with pytest.raises(ConnectionError, match="tool failure"):
+        build_graph(cast(BaseChatModel, model)).invoke({"request": "pedido 123"})
+    assert execute.call_count == 1
     assert model.invoke.call_count == 1

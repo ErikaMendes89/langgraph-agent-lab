@@ -1,16 +1,22 @@
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from httpx import ConnectError, ConnectTimeout, ReadTimeout
 from langchain_core.messages import AIMessage
 
+from app.agents.tool_nodes import DIRECT_GUIDANCE
 from app.core.config import DEFAULT_REQUEST, get_mode, get_model_name, get_request
 from app.main import main
 
 
 @pytest.fixture(autouse=True)
 def clean_environment(monkeypatch: pytest.MonkeyPatch) -> None:
-    for name in ("INCIDENT_LAB_MODE", "INCIDENT_LAB_MODEL", "INCIDENT_LAB_REQUEST"):
+    for name in (
+        "INCIDENT_LAB_MODE",
+        "INCIDENT_LAB_MODEL",
+        "INCIDENT_LAB_REQUEST",
+        "INCIDENT_LAB_ORDER_ID",
+    ):
         monkeypatch.delenv(name, raising=False)
 
 
@@ -60,8 +66,9 @@ def test_cli_runs_tool_graph_without_real_provider(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     model = Mock()
+    model.ainvoke = AsyncMock()
     model.bind_tools.return_value = model
-    model.invoke.side_effect = [
+    model.ainvoke.side_effect = [
         AIMessage(
             content="",
             tool_calls=[{"name": "search_logs", "args": {"order_id": "123"}, "id": "cli-1"}],
@@ -100,8 +107,9 @@ def test_cli_reports_model_errors_without_success_output(
     expected_error: str,
 ) -> None:
     model = Mock()
+    model.ainvoke = AsyncMock()
     model.bind_tools.return_value = model
-    model.invoke.return_value = reply
+    model.ainvoke.return_value = reply
     monkeypatch.setattr("app.main.create_model", Mock(return_value=model))
     monkeypatch.setenv("INCIDENT_LAB_MODE", "ollama")
     assert main() == 1
@@ -114,16 +122,17 @@ def test_cli_prints_direct_answer_without_running_a_tool(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     model = Mock()
+    model.ainvoke = AsyncMock()
     model.bind_tools.return_value = model
-    model.invoke.return_value = AIMessage(content="Qual é o ID do pedido?")
+    model.ainvoke.return_value = AIMessage(content="Qual é o ID do pedido?")
     monkeypatch.setattr("app.main.create_model", Mock(return_value=model))
     monkeypatch.setenv("INCIDENT_LAB_MODE", "ollama")
     monkeypatch.setenv("INCIDENT_LAB_REQUEST", "Investigue uma inconsistência.")
     assert main() == 0
     captured = capsys.readouterr()
-    assert captured.out.endswith("Qual é o ID do pedido?\n")
+    assert captured.out.endswith(DIRECT_GUIDANCE + "\n")
     assert captured.err == ""
-    assert model.invoke.call_count == 1
+    assert model.ainvoke.call_count == 1
 
 
 @pytest.mark.parametrize("stage", ["agent", "summarize"])
@@ -144,6 +153,7 @@ def test_cli_reports_transport_failure(
     message: str,
 ) -> None:
     model = Mock()
+    model.ainvoke = AsyncMock()
     model.bind_tools.return_value = model
     replies: list[AIMessage | Exception] = []
     if stage == "summarize":
@@ -153,8 +163,8 @@ def test_cli_reports_transport_failure(
                 tool_calls=[{"name": "search_logs", "args": {"order_id": "123"}, "id": "1"}],
             )
         )
-    replies.append(error)
-    model.invoke.side_effect = replies
+    replies.extend([error, error])
+    model.ainvoke.side_effect = replies
     monkeypatch.setattr("app.main.create_model", Mock(return_value=model))
     monkeypatch.setenv("INCIDENT_LAB_MODE", "ollama")
     assert main() == 1
@@ -162,14 +172,31 @@ def test_cli_reports_transport_failure(
     assert captured.out == ""
     assert message in captured.err
     assert "private detail" not in captured.err
-    assert model.invoke.call_count == len(replies)
+    assert model.ainvoke.call_count == len(replies)
 
 
 def test_cli_does_not_hide_unexpected_errors(monkeypatch: pytest.MonkeyPatch) -> None:
     model = Mock()
+    model.ainvoke = AsyncMock()
     model.bind_tools.return_value = model
-    model.invoke.side_effect = RuntimeError("unexpected")
+    model.ainvoke.side_effect = RuntimeError("unexpected")
     monkeypatch.setattr("app.main.create_model", Mock(return_value=model))
     monkeypatch.setenv("INCIDENT_LAB_MODE", "ollama")
     with pytest.raises(RuntimeError, match="unexpected"):
         main()
+
+
+def test_cli_reports_total_deadline_without_report(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from app.core.execution import ExecutionTimeoutError
+
+    monkeypatch.setenv("INCIDENT_LAB_MODE", "ollama")
+    monkeypatch.setattr("app.main.create_model", Mock())
+    monkeypatch.setattr(
+        "app.main.run_investigation", AsyncMock(side_effect=ExecutionTimeoutError())
+    )
+    assert main() == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "Prazo total" in captured.err
