@@ -56,7 +56,7 @@ def test_unknown_order_passes_empty_evidence_to_model() -> None:
 @pytest.mark.parametrize(
     "reply",
     [
-        AIMessage(content="Não chamarei ferramentas."),
+        AIMessage(content="  "),
         AIMessage(content="", tool_calls=tool_reply().tool_calls * 2),
         AIMessage(content="", tool_calls=[{"name": "shell", "args": {}, "id": "call-1"}]),
         AIMessage(content="", tool_calls=[{"name": "search_logs", "args": {}, "id": ""}]),
@@ -114,3 +114,70 @@ def test_tool_graph_does_not_keep_history_between_invocations() -> None:
     result = graph.invoke({"request": "pedido 456"})
     assert len(result["messages"]) == 5
     assert "123" not in str(model.invoke.call_args_list[2].args[0])
+
+
+@pytest.mark.parametrize(
+    "prompt, answer",
+    [
+        ("Investigue uma inconsistência.", "Qual é o ID do pedido que você quer consultar?"),
+        ("O que você pode fazer?", "Posso consultar logs fictícios de pedidos neste laboratório."),
+    ],
+)
+def test_direct_response_ends_without_tool_or_second_model_call(prompt: str, answer: str) -> None:
+    model = scripted_model(AIMessage(content=answer))
+    updates = list(
+        build_graph(cast(BaseChatModel, model)).stream({"request": prompt}, stream_mode="updates")
+    )
+    assert [list(update) for update in updates] == [["agent"]]
+    output = updates[0]["agent"]
+    assert output["response"].endswith(answer)
+    assert "dados inteiramente fictícios" in output["response"]
+    assert len(output["messages"]) == 3
+    assert not any(isinstance(message, ToolMessage) for message in output["messages"])
+    assert model.invoke.call_count == 1
+
+
+def test_tool_call_with_text_takes_tool_route_and_finishes() -> None:
+    reply = tool_reply()
+    reply.content = "Vou consultar os logs fictícios."
+    model = scripted_model(reply, AIMessage(content="Síntese das evidências fictícias."))
+    updates = list(
+        build_graph(cast(BaseChatModel, model)).stream(
+            {"request": "Investigue o pedido 123."}, stream_mode="updates"
+        )
+    )
+    assert [list(update) for update in updates] == [["agent"], ["tools"], ["summarize"]]
+    assert "response" not in updates[0]["agent"]
+    assert updates[-1]["summarize"]["response"].endswith("Síntese das evidências fictícias.")
+    assert model.invoke.call_count == 2
+
+
+def test_route_is_recomputed_for_each_invocation() -> None:
+    model = scripted_model(
+        tool_reply(),
+        AIMessage(content="Primeira síntese."),
+        AIMessage(content="Qual pedido?"),
+        tool_reply("456"),
+        AIMessage(content="Sem evidências para o segundo pedido."),
+    )
+    graph = build_graph(cast(BaseChatModel, model))
+    graph.invoke({"request": "pedido 123"})
+    direct = graph.invoke({"request": "Investigue uma inconsistência."})
+    assert len(direct["messages"]) == 3
+    assert direct["response"].endswith("Qual pedido?")
+    final = graph.invoke({"request": "pedido 456"})
+    assert len(final["messages"]) == 5
+    assert final["response"].endswith("Sem evidências para o segundo pedido.")
+    assert "Primeira síntese" not in str(final["messages"])
+    assert model.invoke.call_count == 5
+
+
+def test_malformed_tool_call_with_text_is_not_treated_as_direct_response() -> None:
+    reply = AIMessage(
+        content="Resposta aparentemente válida.",
+        invalid_tool_calls=[{"name": "search_logs", "args": "{", "id": "bad"}],
+    )
+    model = scripted_model(reply)
+    with pytest.raises(ModelResponseError):
+        build_graph(cast(BaseChatModel, model)).invoke({"request": "pedido 123"})
+    assert model.invoke.call_count == 1

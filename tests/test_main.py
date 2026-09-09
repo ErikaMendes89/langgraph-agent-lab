@@ -1,6 +1,7 @@
 from unittest.mock import Mock
 
 import pytest
+from httpx import ConnectError, ConnectTimeout, ReadTimeout
 from langchain_core.messages import AIMessage
 
 from app.core.config import DEFAULT_REQUEST, get_mode, get_model_name, get_request
@@ -82,7 +83,7 @@ def test_cli_runs_tool_graph_without_real_provider(
 @pytest.mark.parametrize(
     "reply, expected_error",
     [
-        (AIMessage(content="Sem ferramenta."), "Erro na resposta do modelo"),
+        (AIMessage(content="  "), "Erro na resposta do modelo"),
         (
             AIMessage(
                 content="",
@@ -107,3 +108,68 @@ def test_cli_reports_model_errors_without_success_output(
     captured = capsys.readouterr()
     assert captured.out == ""
     assert expected_error in captured.err
+
+
+def test_cli_prints_direct_answer_without_running_a_tool(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    model = Mock()
+    model.bind_tools.return_value = model
+    model.invoke.return_value = AIMessage(content="Qual é o ID do pedido?")
+    monkeypatch.setattr("app.main.create_model", Mock(return_value=model))
+    monkeypatch.setenv("INCIDENT_LAB_MODE", "ollama")
+    monkeypatch.setenv("INCIDENT_LAB_REQUEST", "Investigue uma inconsistência.")
+    assert main() == 0
+    captured = capsys.readouterr()
+    assert captured.out.endswith("Qual é o ID do pedido?\n")
+    assert captured.err == ""
+    assert model.invoke.call_count == 1
+
+
+@pytest.mark.parametrize("stage", ["agent", "summarize"])
+@pytest.mark.parametrize(
+    "error, message",
+    [
+        (ConnectionError("private detail"), "Erro de conexão"),
+        (ConnectError("private detail"), "Erro de conexão"),
+        (ConnectTimeout("private detail"), "Tempo limite"),
+        (ReadTimeout("private detail"), "Tempo limite"),
+    ],
+)
+def test_cli_reports_transport_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    stage: str,
+    error: Exception,
+    message: str,
+) -> None:
+    model = Mock()
+    model.bind_tools.return_value = model
+    replies: list[AIMessage | Exception] = []
+    if stage == "summarize":
+        replies.append(
+            AIMessage(
+                content="",
+                tool_calls=[{"name": "search_logs", "args": {"order_id": "123"}, "id": "1"}],
+            )
+        )
+    replies.append(error)
+    model.invoke.side_effect = replies
+    monkeypatch.setattr("app.main.create_model", Mock(return_value=model))
+    monkeypatch.setenv("INCIDENT_LAB_MODE", "ollama")
+    assert main() == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert message in captured.err
+    assert "private detail" not in captured.err
+    assert model.invoke.call_count == len(replies)
+
+
+def test_cli_does_not_hide_unexpected_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+    model = Mock()
+    model.bind_tools.return_value = model
+    model.invoke.side_effect = RuntimeError("unexpected")
+    monkeypatch.setattr("app.main.create_model", Mock(return_value=model))
+    monkeypatch.setenv("INCIDENT_LAB_MODE", "ollama")
+    with pytest.raises(RuntimeError, match="unexpected"):
+        main()

@@ -9,7 +9,7 @@ from langgraph.prebuilt import ToolNode
 
 from app.agents.nodes import agent
 from app.agents.state import InvestigationState
-from app.agents.tool_nodes import request_logs, summarize
+from app.agents.tool_nodes import call_agent, route_after_agent, summarize
 from app.tools.logs import search_logs
 
 
@@ -22,11 +22,11 @@ def build_graph(
         builder.add_edge(START, "agent")
         builder.add_edge("agent", END)
     else:
-        builder.add_node("agent", partial(request_logs, model=model.bind_tools([search_logs])))
+        builder.add_node("agent", partial(call_agent, model=model.bind_tools([search_logs])))
         builder.add_node("tools", ToolNode([search_logs], handle_tool_errors=False))
         builder.add_node("summarize", partial(summarize, model=model))
         builder.add_edge(START, "agent")
-        builder.add_edge("agent", "tools")
+        builder.add_conditional_edges("agent", route_after_agent, {"tools": "tools", "done": END})
         builder.add_edge("tools", "summarize")
         builder.add_edge("summarize", END)
     return builder.compile()

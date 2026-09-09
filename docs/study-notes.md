@@ -1,7 +1,9 @@
-# Notas de estudo — v0.1 e v0.2
+# Notas de estudo — v0.1 ao início da v0.4
 
 As primeiras seções registram o exemplo inicial, preservado no modo `demo`. A seção
-da v0.2 mostra a evolução do código para tool calling com um modelo local.
+da v0.2 registra a primeira rodada de tool calling. Os exemplos dessa seção descrevem
+o código daquela versão. As seções da v0.3 e v0.4 explicam o roteamento e o
+tratamento de falhas do código atual.
 
 ## O que é um StateGraph
 
@@ -183,3 +185,97 @@ antes de tirar conclusões sobre sua qualidade.
 
 Referências: [tools e ToolNode](https://docs.langchain.com/oss/python/langchain/tools)
 e [ChatOllama](https://docs.langchain.com/oss/python/integrations/chat/ollama).
+
+## v0.3 — Escolhendo o próximo passo
+
+Na v0.2, toda execução com modelo precisava de uma ferramenta. Agora estou praticando
+uma alternativa: o modelo pode responder diretamente, inclusive pedindo informações
+que faltam. Em `app/agents/graph.py`, substituí a aresta fixa após `agent` por:
+
+```python
+builder.add_conditional_edges("agent", route_after_agent, {"tools": "tools", "done": END})
+```
+
+`route_after_agent`, em `app/agents/tool_nodes.py`, recebe o estado atualizado pelo
+nó e examina a última `AIMessage`. Se houver `tool_calls`, retorna `tools`; caso
+contrário, retorna `done`. O dicionário mapeia esse resultado para o próximo destino.
+O retorno está tipado como `Literal["tools", "done"]` para explicitar as opções.
+
+O roteador não é outro LLM e não executa a ferramenta. Ele toma uma decisão
+determinística sobre a estrutura da resposta produzida pelo modelo. Não procura
+palavras como “pedido” no texto do usuário para escolher a rota.
+
+| Resposta do modelo | Caminho | Chamadas ao modelo | Consultas à tool |
+| --- | --- | --- | --- |
+| Texto sem tool call | `agent -> END` | 1 | 0 |
+| Uma tool call válida | `agent -> tools -> summarize -> END` | 2 | 1 |
+| Tool call malformada ou múltipla | Erro antes do roteamento | 1 | 0 |
+
+## O que mudou nos nós
+
+`request_logs` passou a se chamar `call_agent`, pois agora também recebe respostas
+sem consulta. `AgentDecisionUpdate` contém as mensagens e um campo `response`
+opcional: a resposta direta preenche esse campo; a rota de tool deixa a síntese
+preenchê-lo depois.
+
+`format_response` reúne a validação final que as duas rotas compartilham: o texto
+deve ser não vazio e não pode pedir novas ferramentas. Ela também acrescenta o
+aviso de laboratório com dados fictícios. Isso evita duplicar o contrato de saída.
+
+Uma resposta que contém texto **e** uma tool call segue para a ferramenta. Já uma
+chamada em `invalid_tool_calls` é rejeitada por `call_agent`, mesmo que exista texto
+aparentemente válido. Não quero transformar uma falha de protocolo em sucesso.
+
+## Como verifiquei as rotas
+
+Em `tests/test_tool_graph.py`, os testes usam `stream(..., stream_mode="updates")`
+para observar quais nós realmente executaram:
+
+- `test_direct_response_ends_without_tool_or_second_model_call` verifica somente
+  `agent`, uma chamada ao modelo e a resposta final disponível.
+- `test_tool_call_with_text_takes_tool_route_and_finishes` verifica `agent`, `tools`
+  e `summarize`, com duas chamadas ao modelo.
+- `test_route_is_recomputed_for_each_invocation` alterna entre consulta, resposta
+  direta e outra consulta no mesmo grafo, sem reaproveitar histórico ou resposta anterior.
+
+Os testes anteriores de argumentos inválidos, ferramenta desconhecida, síntese vazia
+e falha do provedor continuam verificando regressões.
+
+## Limites do que aprendi nesta etapa
+
+A rota direta permite ao modelo perguntar “Qual é o ID do pedido?”, mas os testes
+usam essa resposta pronta. Eles provam o caminho executado a partir dela, não que um
+LLM real fará a pergunta correta. O modelo ainda pode escolher mal ou inventar fatos.
+
+As duas rotas terminam sem loops. Não adicionei conversa persistente: após um pedido
+de esclarecimento, a próxima execução precisa receber novamente a solicitação completa.
+Políticas de limite, timeout, retry e validações adicionais ficam para a v0.4.
+
+Referência: [arestas condicionais na Graph API](https://docs.langchain.com/oss/python/langgraph/graph-api).
+
+## v0.4 — Primeiro incremento: comunicação com o Ollama
+
+Durante a execução local, a conexão foi recusada porque o servidor não estava
+disponível em `localhost:11434`. Iniciar `ollama serve` em outro terminal e baixar
+o modelo permitiu obter o relatório. Isso mostrou a diferença entre instalar a
+integração Python e manter o servidor do modelo em execução.
+
+`create_model` agora passa `Timeout(120.0, connect=5.0)` por `client_kwargs`.
+São 5 segundos para conectar e 120 segundos para as demais operações de rede.
+O timeout de leitura mede a espera entre blocos recebidos; uma resposta que continua
+enviando blocos pode durar mais de 120 segundos. Ainda não há prazo total do grafo.
+
+A CLI trata conexão recusada e timeout com mensagem em stderr e código 1, sem
+imprimir relatório parcial ou repetir a chamada. Outros erros inesperados continuam
+visíveis. HTTPX já era transitivo e passou a ser dependência direta por ser importado.
+
+Os testes simulam falhas no agente e na síntese, verificando que não há saída de
+sucesso nem chamadas extras. Um teste usa o ChatOllama real com envio HTTP substituído
+para verificar os timeouts na requisição sem acessar a rede. Esses testes não
+comprovam o desempenho do modelo real nem simulam a passagem de 120 segundos.
+
+Validação deste incremento: 57 testes aprovados, Ruff (lint e formato), mypy e
+`git diff --check` sem problemas. Retries limitados e prazo total continuam pendentes.
+
+Referências: [timeouts do HTTPX](https://www.python-httpx.org/advanced/timeouts/) e
+[client_kwargs do ChatOllama](https://reference.langchain.com/python/langchain-ollama/chat_models/ChatOllama/client_kwargs).

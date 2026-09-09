@@ -1,5 +1,6 @@
 """Integração com o servidor Ollama local."""
 
+from httpx import Timeout
 from langchain_ollama import ChatOllama
 
 
@@ -10,4 +11,5 @@ def create_model(name: str) -> ChatOllama:
         temperature=0,
         num_ctx=4096,
         reasoning=False,
+        client_kwargs={"timeout": Timeout(120.0, connect=5.0)},
     )

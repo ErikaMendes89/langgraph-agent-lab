@@ -1,11 +1,11 @@
 # Arquitetura
 
-## Escopo atual — v0.2
+## Escopo atual — v0.3 e primeiro incremento da v0.4
 
 Laboratório educacional, sem alegação de experiência profissional ou uso em produção.
 O modo `demo` preserva `START -> agent -> END`, determinístico e sem LLM.
-O modo `ollama` usa `START -> agent -> tools -> summarize -> END`, com uma rodada
-de tool calling e um modelo servido localmente. Ainda não há roteamento condicional.
+O modo `ollama` usa uma aresta condicional após `agent`: uma tool call leva a
+`tools -> summarize -> END`; uma resposta direta leva a `END`. Não há loops.
 
 | Arquivo/diretório | Responsabilidade |
 | --- | --- |
@@ -14,7 +14,7 @@ de tool calling e um modelo servido localmente. Ainda não há roteamento condic
 | `app/core/model.py` | Configurar ChatOllama no servidor local |
 | `app/agents/state.py` | Contrato tipado `InvestigationState` |
 | `app/agents/nodes.py` | Validar solicitação e retornar `AgentUpdate` |
-| `app/agents/tool_nodes.py` | Solicitar uma tool e sintetizar seu resultado |
+| `app/agents/tool_nodes.py` | Chamar o modelo, escolher a rota e formatar a saída |
 | `app/agents/graph.py` | Construir e compilar o grafo |
 | `app/tools/logs.py` | Schema estrito e consulta somente leitura a logs fictícios |
 | `tests/` | Testes determinísticos de comportamento |
@@ -27,13 +27,21 @@ de tool calling e um modelo servido localmente. Ainda não há roteamento condic
 2. `build_graph(model)` registra `search_logs` com `bind_tools`. Sem modelo,
    `build_graph()` monta o exemplo básico da v0.1.
 3. `invoke({"request": request})` inicia uma execução independente.
-4. `request_logs` valida a solicitação, envia mensagens ao modelo e exige exatamente
-   uma chamada a `search_logs`, com identificador não vazio.
-5. `ToolNode` valida os argumentos com `SearchLogsInput`, executa a consulta e devolve
-   um `ToolMessage` associado ao ID da chamada.
-6. `summarize` envia o histórico com as evidências ao modelo sem tools vinculadas.
-   Exige texto não vazio e rejeita novas chamadas de ferramentas.
-7. A CLI imprime a síntese com um aviso de dados fictícios e retorna código 0.
+4. `call_agent` valida a solicitação e envia mensagens ao modelo. Aceita uma chamada
+   a `search_logs`, com identificador não vazio, ou uma resposta textual não vazia.
+   `invalid_tool_calls` e múltiplas chamadas interrompem a execução.
+5. `route_after_agent` lê a última `AIMessage`. Com tool call, retorna `tools`;
+   sem tool call, retorna `done`, mapeado a `END` em `add_conditional_edges`.
+6. Na rota de consulta, `ToolNode` valida os argumentos com `SearchLogsInput`, executa
+   a ferramenta e devolve um `ToolMessage`. `summarize` envia o histórico com as
+   evidências ao modelo sem tools vinculadas.
+7. `format_response` aplica às duas rotas o contrato de texto não vazio sem novas
+   chamadas de ferramenta. A CLI imprime a saída com aviso de dados fictícios e retorna 0.
+
+A resposta direta já preenche `response` em `call_agent`; não há segunda chamada
+ao modelo nem execução de tool nessa rota. O roteador apenas escolhe o caminho,
+sem alterar estado ou executar ações. Uma tool call válida acompanhada de texto
+continua na rota de consulta, pois o conteúdo textual não substitui a chamada estruturada.
 
 `response` e `messages` são opcionais na entrada. `request` e `response` usam
 substituição de valor; `messages` usa o reducer `add_messages`, que acumula mensagens
@@ -51,7 +59,9 @@ Configuração inválida recebe mensagem em stderr e código 1. Entrada direta i
 grafo gera `ValueError`. Violações do protocolo geram `ModelResponseError`.
 Argumentos inválidos na tool geram `ValidationError`, encapsulado pelo `ToolNode` em
 `ToolInvocationError`. A CLI apresenta uma mensagem sem ecoar os argumentos e retorna 1.
-Falhas inesperadas, inclusive indisponibilidade do provedor, são propagadas para diagnóstico.
+Falhas de conexão (`ConnectError` ou `ConnectionError`) e timeout (`TimeoutException`)
+recebem mensagens específicas na CLI, com código 1 e sem relatório parcial. Falhas
+inesperadas continuam sendo propagadas para diagnóstico.
 Não há fallback silencioso para demo quando o modo Ollama falha.
 
 O modelo usa `http://localhost:11434`, sem API key. `.gitignore`
@@ -60,16 +70,21 @@ A solicitação e as evidências são enviadas ao servidor local. Os exemplos de
 sintéticos. Instruções nos prompts para não obedecer aos logs não constituem proteção
 completa contra prompt injection. Não existem controles para exposição como serviço.
 
-Há duas chamadas ao modelo em uma execução bem-sucedida, com somente uma consulta à
-tool. Não há política própria de retry, timeout, orçamento de tokens ou custo nesta fase.
+Há uma chamada ao modelo na rota direta ou duas na rota de consulta, com no máximo
+uma execução de tool. O cliente HTTP tem timeout de 5 segundos para conectar e
+120 segundos para leitura, escrita e espera por conexão disponível. O limite de
+leitura vale para a espera entre blocos, não para a duração total do grafo.
+Não há política própria de retry, limite total de duração, orçamento de tokens ou custo.
 O contexto está configurado em 4096 tokens para o experimento local; isso não substitui
-limites de execução. O resumo não passa por validação semântica de evidências.
+limites de execução. A resposta não passa por validação semântica de evidências;
+o modelo pode escolher a rota inadequada ou fazer afirmações incorretas.
+Pedir o ID ausente é uma instrução de prompt, não um requisito imposto pelo roteador.
 
 ## Evolução planejada
 
 `get_customer`, `search_docs` e `create_report` continuam planejadas, sem APIs ou
 regras de negócio definidas. As versões seguintes estudarão
-roteamento, validação, orçamento de execução, aprovação humana, avaliação e tracing.
+validação, orçamento de execução, aprovação humana, avaliação e tracing.
 Persistência e efeitos externos exigirão decisões sobre autorização, idempotência,
 retenção e recuperação de falhas antes de sua implementação.
 

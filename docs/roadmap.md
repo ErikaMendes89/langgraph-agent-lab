@@ -1,9 +1,11 @@
 # Roadmap de aprendizado
 
 As versões representam etapas aproximadas de estudo, sem promessa de prontidão para
-produção. A v0.1 está preservada no modo `demo`. A v0.2 implementa uma rodada fixa de
-tool calling com Ollama e logs fictícios. A execução com um modelo real ainda precisa
-ser validada localmente; os testes usam respostas controladas.
+produção. A v0.1 está preservada no modo `demo`; a v0.2 introduziu tool calling com
+Ollama e logs fictícios. A v0.3 adiciona a escolha entre consulta e resposta direta,
+com testes de ambas as rotas. A execução local com Ollama produziu um relatório,
+conforme observado pela autora. A comparação dos cenários com logs, sem logs e sem ID
+ainda está pendente com o modelo real; os testes usam respostas controladas.
 
 | Versão | Escopo proposto | Critério de conclusão |
 | --- | --- | --- |
@@ -21,8 +23,13 @@ fase serão definidos a partir do aprendizado e da revisão da etapa anterior.
 
 ## Revisão antes de avançar
 
+Primeiro incremento da v0.4: timeout de comunicação com o Ollama e mensagens de
+conexão indisponível/timeout na CLI, com saída 1 e sem relatório parcial. Os testes
+simulam falhas tanto no agente quanto na síntese. Limite total de duração e retries
+limitados continuam pendentes; este incremento não conclui a v0.4.
+
 - Entender e explicar o estado e cada transição.
 - Executar testes, lint, verificação de formato e checagem de tipos.
 - Revisar secrets, `.gitignore`, alterações e documentação antes de qualquer commit.
 - Usar dados fictícios e nunca versionar `.env`, tokens ou API keys.
-- Revisar a v0.2 antes de avançar para roteamento condicional; não fazer push automaticamente.
+- Continuar a v0.4 com limites e retries após revisar o incremento de timeout.

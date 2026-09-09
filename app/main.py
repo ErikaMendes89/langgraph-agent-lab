@@ -2,6 +2,7 @@
 
 import sys
 
+from httpx import ConnectError, TimeoutException
 from langgraph.prebuilt.tool_node import ToolInvocationError
 
 from app.agents.graph import build_graph
@@ -22,6 +23,20 @@ def main() -> int:
     model = create_model(model_name) if model_name is not None else None
     try:
         result = build_graph(model).invoke({"request": request})
+    except (ConnectError, ConnectionError):
+        print(
+            "Erro de conexão: não foi possível acessar o Ollama em http://localhost:11434. "
+            "Execute 'ollama serve' em outro terminal e tente novamente.",
+            file=sys.stderr,
+        )
+        return 1
+    except TimeoutException:
+        print(
+            "Tempo limite de comunicação com o Ollama excedido. "
+            "Verifique o servidor e a capacidade do hardware antes de tentar novamente.",
+            file=sys.stderr,
+        )
+        return 1
     except ModelResponseError as exc:
         print(f"Erro na resposta do modelo: {exc}", file=sys.stderr)
         return 1

@@ -13,15 +13,17 @@ receber uma solicitação como: “Investigue por que o pedido 123 apresentou in
 e gere um relatório.”
 
 Na **v0.1**, comecei com um único nó para acompanhar a passagem do estado pelo grafo.
-Na **v0.2**, estou colocando tool calling em prática: um modelo local pode solicitar
-logs fictícios de um pedido e resumir o resultado. Ainda não há investigação de dados
-reais nem geração de arquivo de relatório. O exemplo inicial continua no modo `demo`.
+Na **v0.2**, adicionei tool calling para consultar logs fictícios e resumir o resultado.
+Na **v0.3**, estou praticando roteamento condicional: o modelo pode responder diretamente
+ou solicitar a consulta. Ainda não há investigação de dados reais nem geração de arquivo
+de relatório. O exemplo inicial continua no modo `demo`. O primeiro incremento da **v0.4** adiciona
+timeout de comunicação e tratamento de falhas de conexão na CLI.
 
 ## O que é LangGraph
 
 LangGraph é uma biblioteca de orquestração de workflows com estado. O fluxo é descrito
 por nós (funções), arestas (transições) e um estado compartilhado. Nesta etapa, estou
-estudando como conectar o modelo a uma ferramenta usando a Graph API. As referências estão na
+estudando como o estado determina o próximo passo usando a Graph API. As referências estão na
 [documentação oficial](https://docs.langchain.com/oss/python/langgraph/overview)
 e as [notas de estudo](docs/study-notes.md).
 
@@ -29,22 +31,26 @@ e as [notas de estudo](docs/study-notes.md).
 
 ```mermaid
 flowchart LR
-    START --> agent --> tools --> summarize --> END
+    START --> agent
+    agent -->|tool call| tools
+    agent -->|resposta direta| END
+    tools --> summarize --> END
 ```
 
 `app/main.py` lê a configuração e invoca o grafo. `app/agents/state.py` define os dados;
 `nodes.py` valida a solicitação e produz a resposta; `graph.py` conecta as etapas.
 `app/core/config.py` concentra a leitura do ambiente e `app/core/model.py` configura
-o modelo local. `tool_nodes.py` solicita a ferramenta e sintetiza as evidências;
+o modelo local. `tool_nodes.py` chama o modelo, escolhe a rota e sintetiza as evidências;
 `app/tools/logs.py` contém `search_logs`. `evals/` permanece reservado para a v0.6.
 
-O fluxo acima é fixo, com duas chamadas ao modelo e uma à ferramenta quando tudo dá
-certo. O modo `demo` mantém `START -> agent -> END`, sem usar LLM.
+Na rota direta há uma chamada ao modelo e nenhuma ferramenta. Na rota de consulta há
+duas chamadas ao modelo e uma à ferramenta. As duas terminam sem loops.
+O modo `demo` mantém `START -> agent -> END`, sem usar LLM.
 
 ## Arquitetura planejada
 
 Nas próximas etapas, pretendo adicionar `get_customer`, `search_docs` e `create_report`
-e evoluir a consulta de logs. Também quero explorar roteamento condicional, limites,
+e evoluir a consulta de logs. Também quero explorar limites de execução,
 aprovação humana, avaliações e rastreamento. Os contratos e as integrações ainda serão
 definidos conforme eu desenvolver cada etapa. Detalhei esse plano em
 [architecture.md](docs/architecture.md).
@@ -105,11 +111,32 @@ Referências: [modelo](https://ollama.com/library/qwen3:1.7b) e
 fictícios: pagamento aprovado e falha simulada na atualização do pedido. Outros IDs
 retornam uma lista vazia. Esses eventos são um exercício, não regras de negócio reais.
 
-O modelo deve solicitar exatamente uma consulta. Uma resposta sem tool call, com
-ferramenta desconhecida, argumentos inválidos ou novas chamadas na síntese encerra a
-execução com erro. Aprenderei a lidar com rotas alternativas na v0.3.
-Falhas de conexão e execução inesperadas são propagadas para diagnóstico; verifique
-se o servidor está iniciado e se `ollama list` mostra o modelo configurado.
+O modelo pode responder em texto ou solicitar uma consulta. Quando retorna texto sem
+tool call, o grafo encerra com essa resposta. Uma ferramenta desconhecida, argumentos
+inválidos, múltiplas chamadas, texto final vazio ou novas chamadas na síntese encerram
+a execução com erro.
+Falhas de conexão e timeout encerram a CLI com código 1 e mensagem em stderr,
+sem imprimir um relatório parcial. Inicie o servidor com `ollama serve` em outro
+terminal e verifique se `ollama list` mostra o modelo configurado.
+O primeiro incremento da v0.4 configura 5 segundos para conectar e 120 segundos
+para leitura, escrita e espera por conexão disponível. O timeout de leitura limita
+a espera entre blocos recebidos, não a duração total do grafo. Não há retry automático;
+falhas inesperadas continuam sendo propagadas para diagnóstico.
+O HTTPX, já usado pela integração Ollama, é declarado como dependência direta porque
+o aplicativo agora importa sua configuração de timeout e suas exceções.
+
+Para experimentar a rota direta, com o modo `ollama` ativo:
+
+```bash
+export INCIDENT_LAB_REQUEST="Investigue uma inconsistência."
+python -m app.main
+```
+
+A instrução ao modelo é pedir o ID ausente sem consultar ferramentas. Outra experiência
+é perguntar “O que você pode fazer?”. A rota depende da resposta efetiva do modelo,
+não de palavras-chave na solicitação; esses exemplos não garantem o comportamento de
+um LLM real. Um pedido de esclarecimento encerra esta execução: para informar o ID,
+é preciso executar novamente com a solicitação completa, pois ainda não há conversa persistente.
 
 Use apenas dados fictícios: a solicitação e as evidências são enviadas ao servidor
 local e a síntese aparece no terminal. Para voltar ao exemplo inicial:
@@ -127,8 +154,8 @@ python -m mypy
 ```
 
 Para formatar durante o desenvolvimento: `python -m ruff format .`.
-Os testes cobrem o exemplo básico, o ciclo de tool calling, validação, ausência de logs,
-falhas do modelo e comportamento da CLI. O modelo é substituído por respostas controladas;
+Os testes cobrem o exemplo básico, as duas rotas e seu término, tool calling, validação,
+ausência de logs, falhas do modelo e comportamento da CLI. O modelo usa respostas controladas;
 o grafo e a ferramenta executam de verdade, sem rede. Isso verifica a orquestração,
 mas não comprova a qualidade das respostas de um LLM real.
 
@@ -138,7 +165,7 @@ Quero usar este projeto para praticar e entender:
 
 - Python moderno, tipagem e testes automatizados.
 - StateGraph, estado, nós, arestas e workflows com estado.
-- LLMs e tool calling; roteamento condicional na próxima etapa.
+- LLMs, tool calling e roteamento condicional.
 - Guardrails, human-in-the-loop e avaliação de agentes.
 - Observabilidade, segurança, custo e latência.
 
@@ -155,16 +182,18 @@ um sistema real. Ao longo das próximas versões, pretendo estudar:
 - **Latency**, **token usage** e **cost**: medição de latência, tokens e custo.
 - **Prompt injection** e **segurança de tools**: entradas não confiáveis e proteção de integrações.
 
-Já existe validação dos argumentos e apenas uma ferramenta registrada nesta rodada
-fixa. Os demais controles são metas de estudo, não garantias já implementadas.
+Já existe validação dos argumentos, apenas uma ferramenta registrada e no máximo uma
+consulta por execução. Os demais controles são metas de estudo, não garantias já implementadas.
 
 ## Limitações
 
 - Uma ferramenta com dados fictícios; sem integrações de negócio ou arquivo de relatório.
-- Fluxo fixo, sem rotas alternativas, correção automática de argumentos ou loops.
+- Duas rotas, sem correção automática de argumentos ou loops.
+- A decisão de consultar é do modelo; não há garantia de que ele escolha a rota adequada.
 - A síntese pode conter erros do modelo; não há verificação semântica de suas afirmações.
 - Estado somente na invocação; sem persistência, memória entre execuções ou checkpoint.
-- Sem autenticação, autorização, retry, timeout, aprovação humana ou tracing configurados.
+- Sem autenticação, autorização, retry, limite total de duração do grafo, aprovação humana
+  ou tracing configurados. Há timeout de comunicação com o Ollama.
 - Validação básica da solicitação e schema da tool; TypedDict não valida estado em runtime.
 - Sem avaliações de qualidade de agentes, uso em produção ou métricas de tokens/custo.
 - Dependências têm faixas de versão, sem lockfile; instalações futuras podem resolver
@@ -175,14 +204,15 @@ fixa. Os demais controles são metas de estudo, não garantias já implementadas
 | Versão | Tema |
 | --- | --- |
 | v0.1 | Basic LangGraph — preservado no modo demo |
-| v0.2 | Tool calling — fase atual |
-| v0.3 | Conditional routing |
-| v0.4 | Guardrails and execution limits |
+| v0.2 | Tool calling |
+| v0.3 | Conditional routing — implementado |
+| v0.4 | Guardrails and execution limits — em andamento |
 | v0.5 | Human-in-the-loop |
 | v0.6 | Agent evaluations |
 | v0.7 | Observability and tracing |
 | v1.0 | Complete incident investigation agent |
 
 Detalhes e critérios de conclusão em [roadmap.md](docs/roadmap.md).
-Antes de avançar para a v0.3, vou experimentar o modelo local e revisar os conceitos nas
+A execução local com Ollama já produziu um relatório no terminal. Ainda preciso comparar
+os cenários com logs, sem logs e sem ID com o modelo real e revisar os conceitos nas
 [notas de estudo](docs/study-notes.md).
