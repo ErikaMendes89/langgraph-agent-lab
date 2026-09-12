@@ -21,6 +21,10 @@ timeout de comunicação e tratamento de falhas de conexão na CLI. O segundo ad
 uma nova tentativa por nó do modelo para falhas de conexão ou timeout. O terceiro
 limita a execução da CLI a 300 segundos, com cancelamento assíncrono.
 
+A **fase 5 (v0.5)** começou com aprovação humana optativa na API do grafo:
+checkpoint em memória, revisão da síntese e retomada para aprovar ou rejeitar um
+relatório simulado. Veja o [experimento completo](docs/human-in-the-loop.md).
+
 ## O que é LangGraph
 
 LangGraph é uma biblioteca de orquestração de workflows com estado. O fluxo é descrito
@@ -214,8 +218,10 @@ consulta por execução. Os demais controles são metas de estudo, não garantia
 - Duas rotas, sem correção automática de argumentos ou loops.
 - A decisão de consultar é do modelo; não há garantia de que ele escolha a rota adequada.
 - A síntese pode conter erros do modelo; não há verificação semântica de suas afirmações.
-- Estado somente na invocação; sem persistência, memória entre execuções ou checkpoint.
-- Sem autenticação, autorização, aprovação humana
+- A CLI mantém estado somente na invocação; a API optativa da v0.5 usa checkpoint
+  em memória, perdido ao encerrar o processo.
+- Sem autenticação ou autorização; aprovação humana disponível no experimento da v0.5,
+  sem efeitos externos
   ou tracing configurados. Há timeout de comunicação com o Ollama.
 - Validação básica da solicitação e schema da tool; TypedDict não valida estado em runtime.
 - Sem avaliações de qualidade de agentes, uso em produção ou métricas de tokens/custo.
@@ -230,7 +236,7 @@ consulta por execução. Os demais controles são metas de estudo, não garantia
 | v0.2 | Tool calling |
 | v0.3 | Conditional routing — implementado |
 | v0.4 | Guardrails and execution limits — em andamento |
-| v0.5 | Human-in-the-loop |
+| v0.5 | Human-in-the-loop — primeiro incremento implementado |
 | v0.6 | Agent evaluations |
 | v0.7 | Observability and tracing |
 | v1.0 | Complete incident investigation agent |

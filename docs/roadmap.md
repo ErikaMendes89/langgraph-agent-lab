@@ -24,6 +24,16 @@ fase serão definidos a partir do aprendizado e da revisão da etapa anterior.
 
 ## Revisão antes de avançar
 
+### Fase 5 iniciada
+
+O primeiro incremento adiciona revisão humana optativa na API do grafo, com
+checkpoint em memória e liberação simulada de relatório no estado. Os testes
+cobrem aprovação, rejeição, decisão inválida e retomadas repetidas, sem repetir
+consulta ou síntese. A CLI principal mantém o fluxo anterior. Persistência durável
+e efeitos externos continuam pendentes; veja [human-in-the-loop.md](human-in-the-loop.md).
+
+### Histórico da fase 4
+
 Primeiro incremento da v0.4: timeout de comunicação com o Ollama e mensagens de
 conexão indisponível/timeout na CLI, com saída 1 e sem relatório parcial. Os testes
 simulam falhas tanto no agente quanto na síntese. O segundo incremento adiciona

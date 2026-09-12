@@ -1,5 +1,16 @@
 # Arquitetura
 
+## Primeiro incremento da v0.5
+
+`build_graph(model, require_approval=True, checkpointer=...)` acrescenta os nós
+`review` e `release` depois da síntese. `review` usa `interrupt` para apresentar
+o rascunho e recebe um booleano por `Command(resume=...)`. Apenas a aprovação
+encaminha para `release`, que copia a síntese para `report` no estado. A rejeição
+encerra o fluxo. O contrato adiciona `approved` e `report` como campos opcionais.
+Não há efeito externo nem nova dependência. A CLI e o executor com prazo total
+continuam usando o fluxo sem revisão. O exemplo, o contrato de threads e os limites
+do checkpoint em memória estão em [human-in-the-loop.md](human-in-the-loop.md).
+
 ## Escopo atual — v0.3 e incrementos da v0.4
 
 Laboratório educacional, sem alegação de experiência profissional ou uso em produção.

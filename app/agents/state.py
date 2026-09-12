@@ -10,4 +10,6 @@ class InvestigationState(TypedDict):
     request: str
     order_id: NotRequired[str]
     response: NotRequired[str]
+    approved: NotRequired[bool]
+    report: NotRequired[str]
     messages: NotRequired[Annotated[list[BaseMessage], add_messages]]
