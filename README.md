@@ -21,9 +21,14 @@ timeout de comunicação e tratamento de falhas de conexão na CLI. O segundo ad
 uma nova tentativa por nó do modelo para falhas de conexão ou timeout. O terceiro
 limita a execução da CLI a 300 segundos, com cancelamento assíncrono.
 
-A **fase 5 (v0.5)** começou com aprovação humana optativa na API do grafo:
+A **fase 5 (v0.5)** adiciona aprovação humana optativa na API do grafo e na CLI:
 checkpoint em memória, revisão da síntese e retomada para aprovar ou rejeitar um
 relatório simulado. Veja o [experimento completo](docs/human-in-the-loop.md).
+
+No modo `ollama`, use `INCIDENT_LAB_REQUIRE_APPROVAL=true` para revisar o rascunho
+no terminal. Digite `sim` para liberar o relatório simulado; outra resposta rejeita.
+O tempo de leitura e decisão fica fora do orçamento de 300 segundos, compartilhado
+pela investigação e pela retomada. A aprovação não grava nem publica arquivos.
 
 ## O que é LangGraph
 
@@ -218,8 +223,7 @@ consulta por execução. Os demais controles são metas de estudo, não garantia
 - Duas rotas, sem correção automática de argumentos ou loops.
 - A decisão de consultar é do modelo; não há garantia de que ele escolha a rota adequada.
 - A síntese pode conter erros do modelo; não há verificação semântica de suas afirmações.
-- A CLI mantém estado somente na invocação; a API optativa da v0.5 usa checkpoint
-  em memória, perdido ao encerrar o processo.
+- A aprovação optativa da v0.5 usa checkpoint em memória, perdido ao encerrar o processo.
 - Sem autenticação ou autorização; aprovação humana disponível no experimento da v0.5,
   sem efeitos externos
   ou tracing configurados. Há timeout de comunicação com o Ollama.
@@ -236,7 +240,7 @@ consulta por execução. Os demais controles são metas de estudo, não garantia
 | v0.2 | Tool calling |
 | v0.3 | Conditional routing — implementado |
 | v0.4 | Guardrails and execution limits — em andamento |
-| v0.5 | Human-in-the-loop — primeiro incremento implementado |
+| v0.5 | Human-in-the-loop — revisão na API e na CLI implementada |
 | v0.6 | Agent evaluations |
 | v0.7 | Observability and tracing |
 | v1.0 | Complete incident investigation agent |

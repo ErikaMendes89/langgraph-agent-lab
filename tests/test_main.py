@@ -16,6 +16,7 @@ def clean_environment(monkeypatch: pytest.MonkeyPatch) -> None:
         "INCIDENT_LAB_MODEL",
         "INCIDENT_LAB_REQUEST",
         "INCIDENT_LAB_ORDER_ID",
+        "INCIDENT_LAB_REQUIRE_APPROVAL",
     ):
         monkeypatch.delenv(name, raising=False)
 
@@ -200,3 +201,92 @@ def test_cli_reports_total_deadline_without_report(
     captured = capsys.readouterr()
     assert captured.out == ""
     assert "Prazo total" in captured.err
+
+
+@pytest.mark.parametrize(
+    "answer, approved", [("sim", True), ("não", False), ("", False), ("yes", False)]
+)
+def test_cli_reviews_before_releasing_report(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    answer: str,
+    approved: bool,
+) -> None:
+    model = Mock()
+    model.bind_tools.return_value = model
+    model.ainvoke = AsyncMock(
+        side_effect=[
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {"name": "search_logs", "args": {"order_id": "123"}, "id": "review-cli"}
+                ],
+            ),
+            AIMessage(content="Falha simulada."),
+        ]
+    )
+    monkeypatch.setattr("app.main.create_model", Mock(return_value=model))
+    monkeypatch.setenv("INCIDENT_LAB_MODE", "ollama")
+    monkeypatch.setenv("INCIDENT_LAB_REQUIRE_APPROVAL", "true")
+    read = Mock(return_value=answer)
+    monkeypatch.setattr("builtins.input", read)
+    assert main() == 0
+    read.assert_called_once()
+    output = capsys.readouterr()
+    assert "Rascunho para revisão (ainda não liberado)" in output.out
+    assert ("Relatório simulado aprovado:" in output.out) is approved
+    assert ("Relatório rejeitado." in output.out) is not approved
+    assert output.err == ""
+    assert model.ainvoke.call_count == 2
+
+
+@pytest.mark.parametrize("error", [EOFError(), KeyboardInterrupt()])
+def test_cli_cancels_review_without_releasing_report(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], error: BaseException
+) -> None:
+    model = Mock()
+    model.bind_tools.return_value = model
+    model.ainvoke = AsyncMock(
+        return_value=AIMessage(
+            content="",
+            tool_calls=[{"name": "search_logs", "args": {"order_id": "456"}, "id": "review-empty"}],
+        )
+    )
+    monkeypatch.setattr("app.main.create_model", Mock(return_value=model))
+    monkeypatch.setenv("INCIDENT_LAB_MODE", "ollama")
+    monkeypatch.setenv("INCIDENT_LAB_REQUIRE_APPROVAL", "true")
+    monkeypatch.setattr("builtins.input", Mock(side_effect=error))
+    assert main() == 1
+    output = capsys.readouterr()
+    assert "Execução cancelada" in output.err
+    assert "Relatório simulado aprovado:" not in output.out
+    assert model.ainvoke.call_count == 1
+
+
+def test_cli_direct_guidance_skips_review(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    model = Mock()
+    model.bind_tools.return_value = model
+    model.ainvoke = AsyncMock(return_value=AIMessage(content="Qual pedido?"))
+    monkeypatch.setattr("app.main.create_model", Mock(return_value=model))
+    monkeypatch.setenv("INCIDENT_LAB_MODE", "ollama")
+    monkeypatch.setenv("INCIDENT_LAB_REQUIRE_APPROVAL", "true")
+    read = Mock(side_effect=AssertionError("Não deve pedir aprovação"))
+    monkeypatch.setattr("builtins.input", read)
+    assert main() == 0
+    read.assert_not_called()
+    assert DIRECT_GUIDANCE in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("mode, value", [("demo", "true"), ("ollama", "yes")])
+def test_cli_rejects_invalid_approval_configuration(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], mode: str, value: str
+) -> None:
+    factory = Mock()
+    monkeypatch.setattr("app.main.create_model", factory)
+    monkeypatch.setenv("INCIDENT_LAB_MODE", mode)
+    monkeypatch.setenv("INCIDENT_LAB_REQUIRE_APPROVAL", value)
+    assert main() == 1
+    assert "Erro de configuração" in capsys.readouterr().err
+    factory.assert_not_called()

@@ -7,6 +7,13 @@ from typing import Literal
 DEFAULT_REQUEST = "Investigue por que o pedido 123 apresentou inconsistência e gere um relatório."
 
 
+def get_require_approval() -> bool:
+    value = os.environ.get("INCIDENT_LAB_REQUIRE_APPROVAL", "false")
+    if value not in ("true", "false"):
+        raise ValueError("INCIDENT_LAB_REQUIRE_APPROVAL deve ser true ou false.")
+    return value == "true"
+
+
 def validate_order_id(value: str) -> str:
     if not isinstance(value, str) or re.fullmatch(r"[0-9]{1,12}", value) is None:
         raise ValueError("INCIDENT_LAB_ORDER_ID deve conter de 1 a 12 dígitos ASCII.")

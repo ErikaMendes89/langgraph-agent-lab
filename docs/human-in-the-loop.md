@@ -1,6 +1,6 @@
 # Fase 5 — aprovação humana
 
-Primeiro incremento da v0.5: checkpoint em memória, interrupção para revisão e
+Os dois primeiros incrementos da v0.5 incluem checkpoint em memória, revisão na CLI e
 retomada com aprovação ou rejeição. A ação protegida é **simulada**: copiar a
 síntese aprovada para `report` no estado. Não há arquivo, envio ou publicação.
 
@@ -10,6 +10,31 @@ no agente, pois não existe relatório a aprovar. Consultas sem logs também pas
 pela revisão da resposta determinística.
 
 ## Experimento local
+
+Ative a revisão na CLI com o Ollama disponível:
+
+```bash
+export INCIDENT_LAB_MODE=ollama
+export INCIDENT_LAB_ORDER_ID=123
+export INCIDENT_LAB_REQUIRE_APPROVAL=true
+python -m app.main
+```
+
+A CLI apresenta a síntese como rascunho ainda não liberado. Digite `sim` para
+aprovar; qualquer outra resposta rejeita. Espaços nas extremidades são removidos,
+mas a comparação diferencia maiúsculas de minúsculas. Aprovação e rejeição
+encerram com código 0. EOF ou Ctrl+C durante a revisão cancelam com código 1.
+Uma orientação direta não solicita aprovação. Use `false` (padrão) para desativar.
+Valores diferentes de `true` e `false`, ou aprovação no modo `demo`, são erros de configuração.
+
+`run_investigation(..., review=callback)` habilita o mesmo fluxo no uso programático.
+O callback síncrono recebe o rascunho e deve devolver um booleano. O executor usa
+uma thread de investigação nova e um checkpoint em memória por chamada.
+Os 300 segundos são compartilhados pela investigação e pela retomada, descontando
+somente o tempo de execução do grafo. A espera humana não consome esse orçamento.
+O callback bloqueia o chamador durante a leitura; essa interface destina-se à CLI local.
+
+## Experimento com a API do grafo
 
 Com o ambiente instalado e o Ollama disponível, execute o exemplo abaixo em um
 arquivo Python na raiz do projeto. Use somente dados fictícios.
@@ -48,10 +73,9 @@ else:
     print(paused["response"])
 ```
 
-A espera humana acontece fora do prazo de execução. Cada chamada do exemplo tem
-seu próprio prazo de 300 segundos. A CLI `python -m app.main` e
-`run_investigation` continuam no fluxo anterior, sem aprovação. `build_graph`
-diretamente não aplica timeout; o exemplo o adiciona explicitamente.
+A espera humana acontece fora do prazo de execução. Cada chamada deste exemplo
+didático tem seu próprio prazo de 300 segundos. Para compartilhar o orçamento,
+use `run_investigation` como a CLI. `build_graph` diretamente não aplica timeout.
 
 ## Contrato e limites
 
@@ -72,8 +96,9 @@ diretamente não aplica timeout; o exemplo o adiciona explicitamente.
   `update_state`, IDs de threads ou comandos como se fossem uma interface autorizada.
 - Aprovar significa revisar o conteúdo, sem garantir que a síntese esteja correta.
 
-Não foram adicionadas dependências. Persistência durável, interface integrada à CLI
- e efeitos externos com idempotência permanecem para incrementos futuros.
+Não foram adicionadas dependências. Persistência durável e efeitos externos com
+idempotência permanecem para incrementos futuros. Os testes usam modelo controlado,
+grafo real e entradas simuladas de terminal; não validam a qualidade de um LLM real.
 
 A implementação segue os mecanismos oficiais de
 [interrupt e Command](https://docs.langchain.com/oss/python/langgraph/interrupts)

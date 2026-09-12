@@ -29,8 +29,12 @@ fase serão definidos a partir do aprendizado e da revisão da etapa anterior.
 O primeiro incremento adiciona revisão humana optativa na API do grafo, com
 checkpoint em memória e liberação simulada de relatório no estado. Os testes
 cobrem aprovação, rejeição, decisão inválida e retomadas repetidas, sem repetir
-consulta ou síntese. A CLI principal mantém o fluxo anterior. Persistência durável
-e efeitos externos continuam pendentes; veja [human-in-the-loop.md](human-in-the-loop.md).
+consulta ou síntese. O segundo incremento integra a revisão à CLI por
+`INCIDENT_LAB_REQUIRE_APPROVAL=true`, preservando o orçamento de execução entre
+investigação e retomada e excluindo a espera humana. Os testes cobrem também
+rejeição, EOF, Ctrl+C, configuração inválida e prazo restante na retomada.
+Persistência durável e efeitos externos continuam pendentes;
+veja [human-in-the-loop.md](human-in-the-loop.md).
 
 ### Histórico da fase 4
 

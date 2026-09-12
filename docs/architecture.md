@@ -1,14 +1,19 @@
 # Arquitetura
 
-## Primeiro incremento da v0.5
+## Aprovação humana na v0.5
 
 `build_graph(model, require_approval=True, checkpointer=...)` acrescenta os nós
 `review` e `release` depois da síntese. `review` usa `interrupt` para apresentar
 o rascunho e recebe um booleano por `Command(resume=...)`. Apenas a aprovação
 encaminha para `release`, que copia a síntese para `report` no estado. A rejeição
 encerra o fluxo. O contrato adiciona `approved` e `report` como campos opcionais.
-Não há efeito externo nem nova dependência. A CLI e o executor com prazo total
-continuam usando o fluxo sem revisão. O exemplo, o contrato de threads e os limites
+Não há efeito externo nem nova dependência. A CLI habilita a revisão com
+`INCIDENT_LAB_REQUIRE_APPROVAL=true` no modo Ollama. O executor recebe um callback
+`review`, cria um checkpoint em memória e um `thread_id` novo e retoma o mesmo grafo
+com a decisão. O orçamento de 300 segundos é compartilhado pelas chamadas do grafo;
+a espera humana fica fora dele. EOF e Ctrl+C cancelam a CLI com código 1, enquanto
+a rejeição encerra normalmente com código 0. Sem a opção, o fluxo anterior permanece.
+O exemplo, o contrato de threads e os limites
 do checkpoint em memória estão em [human-in-the-loop.md](human-in-the-loop.md).
 
 ## Escopo atual — v0.3 e incrementos da v0.4
