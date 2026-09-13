@@ -7,10 +7,12 @@ name = "langgraph-agent-lab"
 version = "0.3.0"
 description = "Laboratório educacional de workflows de agentes com LangGraph"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.12,<3.14"
 dependencies = [
     "httpx>=0.27,<1",
     "langgraph>=1.0,<2",
+    "langgraph-checkpoint-postgres>=3.1.2,<4",
+    "psycopg[binary]>=3.2,<4",
     "langchain-core>=1.4.7,<2",
     "langchain-ollama>=1,<2",
     "pydantic>=2.7.4,<3",

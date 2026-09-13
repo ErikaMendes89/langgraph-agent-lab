@@ -12,6 +12,7 @@ from langgraph.prebuilt import ToolNode
 from langgraph.types import RetryPolicy
 
 from app.agents.approval import release_report, review_report, route_after_review
+from app.agents.document_nodes import aretrieve_documents, retrieve_documents, route_after_tools
 from app.agents.nodes import agent
 from app.agents.state import InvestigationState
 from app.agents.tool_nodes import acall_agent, asummarize, call_agent, route_after_agent, summarize
@@ -48,6 +49,7 @@ def build_graph(
             retry_policy=model_retry,
         )
         builder.add_node("tools", ToolNode([search_logs], handle_tool_errors=False))
+        builder.add_node("documents", RunnableLambda(retrieve_documents, afunc=aretrieve_documents))
         builder.add_node(
             "summarize",
             RunnableLambda(partial(summarize, model=model), afunc=partial(asummarize, model=model)),
@@ -55,7 +57,10 @@ def build_graph(
         )
         builder.add_edge(START, "agent")
         builder.add_conditional_edges("agent", route_after_agent, {"tools": "tools", "done": END})
-        builder.add_edge("tools", "summarize")
+        builder.add_conditional_edges(
+            "tools", route_after_tools, {"documents": "documents", "summarize": "summarize"}
+        )
+        builder.add_edge("documents", "summarize")
         if require_approval:
             builder.add_node("review", review_report)
             builder.add_node("release", release_report)

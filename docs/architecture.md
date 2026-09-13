@@ -1,5 +1,18 @@
 # Arquitetura
 
+## Persistência local da v0.5
+
+`compose.yaml` inicia PostgreSQL 17 com pgvector, volume persistente e porta restrita
+a localhost. `db/init.sql` habilita a extensão e cria a role da aplicação.
+`app/core/database.py` abre a conexão assíncrona e configura serialização restrita.
+`app/persistent.py` oferece `init`, `start`, `show` e `resume`: reutiliza o grafo
+existente, salva checkpoints com durabilidade síncrona e aplica lock por investigação.
+Cada comando tem prazo próprio de 300 segundos. A retomada só aceita checkpoints
+aguardando revisão ou já concluídos; não repete etapas anteriores. O catálogo
+documental, ingestão, embeddings e busca vetorial estão descritos em [rag.md](rag.md).
+O contrato operacional, permissões, migrações e DBeaver estão em
+[postgres-local.md](postgres-local.md).
+
 ## Aprovação humana na v0.5
 
 `build_graph(model, require_approval=True, checkpointer=...)` acrescenta os nós

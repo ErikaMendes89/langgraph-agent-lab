@@ -1,0 +1,17 @@
+[
+  {
+    "source": "pagamento-atualizacao",
+    "title": "Pagamento aprovado e atualização do pedido — cenário fictício",
+    "text": "Neste laboratório fictício, o evento payment_approved registra aprovação do pagamento. Ele não comprova que o status do pedido foi atualizado. O evento order_update_failed registra uma falha simulada na atualização do pedido após o pagamento. Ao investigar essa combinação, diferencie o fato observado nos logs da hipótese sobre a causa da falha. Este documento é uma referência didática e não comprova o que ocorreu em um pedido específico. Não faça estorno nem reprocessamento automático com base apenas nesses eventos."
+  },
+  {
+    "source": "ausencia-logs",
+    "title": "Consulta sem registros — cenário fictício",
+    "text": "Uma busca que retorna uma lista vazia significa que não há registros disponíveis nessa fonte de logs fictícios. Isso não comprova que o pedido não existe, que foi cancelado ou que não houve pagamento. Sem registros, informe a ausência de evidências e evite propor uma causa raiz. Um manual genérico recuperado por similaridade não substitui a evidência de uma consulta ao pedido."
+  },
+  {
+    "source": "revisao-relatorio",
+    "title": "Revisão humana de relatórios — laboratório",
+    "text": "O relatório de investigação deve separar observações dos logs, hipóteses e referências documentais. A pessoa revisora pode aprovar ou rejeitar o rascunho salvo. A aprovação neste laboratório libera somente um relatório simulado no estado do grafo; ela não publica arquivos, não envia mensagens e não altera pedidos. Referências recuperadas por busca vetorial podem ser irrelevantes e precisam ser verificadas."
+  }
+]

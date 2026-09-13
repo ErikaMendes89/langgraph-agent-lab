@@ -1,5 +1,9 @@
 # Fase 5 — aprovação humana
 
+O terceiro incremento adiciona PostgreSQL com pgvector e retomada entre processos
+pela CLI `app.persistent`. Consulte [postgres-local.md](postgres-local.md).
+Os exemplos abaixo documentam os dois primeiros incrementos, com checkpoint em memória.
+
 Os dois primeiros incrementos da v0.5 incluem checkpoint em memória, revisão na CLI e
 retomada com aprovação ou rejeição. A ação protegida é **simulada**: copiar a
 síntese aprovada para `report` no estado. Não há arquivo, envio ou publicação.
@@ -96,8 +100,9 @@ use `run_investigation` como a CLI. `build_graph` diretamente não aplica timeou
   `update_state`, IDs de threads ou comandos como se fossem uma interface autorizada.
 - Aprovar significa revisar o conteúdo, sem garantir que a síntese esteja correta.
 
-Não foram adicionadas dependências. Persistência durável e efeitos externos com
-idempotência permanecem para incrementos futuros. Os testes usam modelo controlado,
+Os dois primeiros incrementos não adicionaram dependências. A persistência durável
+foi implementada na CLI PostgreSQL; efeitos externos com idempotência permanecem
+para incrementos futuros. Os testes usam modelo controlado,
 grafo real e entradas simuladas de terminal; não validam a qualidade de um LLM real.
 
 A implementação segue os mecanismos oficiais de

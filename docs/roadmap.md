@@ -33,8 +33,13 @@ consulta ou síntese. O segundo incremento integra a revisão à CLI por
 `INCIDENT_LAB_REQUIRE_APPROVAL=true`, preservando o orçamento de execução entre
 investigação e retomada e excluindo a espera humana. Os testes cobrem também
 rejeição, EOF, Ctrl+C, configuração inválida e prazo restante na retomada.
-Persistência durável e efeitos externos continuam pendentes;
-veja [human-in-the-loop.md](human-in-the-loop.md).
+O terceiro incremento usa PostgreSQL local com pgvector e permite retomar aprovações
+entre processos pela CLI `app.persistent`. O quarto incremento adiciona catálogo
+documental, chunking, embeddings locais, ingestão idempotente e busca semântica
+integrada opcionalmente ao grafo. Os testes cobrem persistência, locks, idempotência
+da decisão, permissões da role e o índice vetorial. Efeitos externos continuam
+pendentes; veja [rag.md](rag.md), [postgres-local.md](postgres-local.md) e
+[human-in-the-loop.md](human-in-the-loop.md).
 
 ### Histórico da fase 4
 

@@ -30,6 +30,14 @@ no terminal. Digite `sim` para liberar o relatório simulado; outra resposta rej
 O tempo de leitura e decisão fica fora do orçamento de 300 segundos, compartilhado
 pela investigação e pela retomada. A aprovação não grava nem publica arquivos.
 
+O terceiro incremento adiciona **PostgreSQL com pgvector local** e checkpoints
+persistentes. `python -m app.persistent start` salva a investigação para revisão;
+`show` consulta e `resume` aprova ou rejeita em outra execução do programa.
+Veja a [preparação do banco e conexão pelo DBeaver](docs/postgres-local.md).
+O pgvector está habilitado e a fase de RAG inclui ingestão, embeddings locais e busca
+semântica. Consulte a [documentação do RAG](docs/rag.md) para o modelo das tabelas,
+o pipeline e os limites atuais.
+
 ## O que é LangGraph
 
 LangGraph é uma biblioteca de orquestração de workflows com estado. O fluxo é descrito
@@ -69,7 +77,7 @@ definidos conforme eu desenvolver cada etapa. Detalhei esse plano em
 
 ## Como executar
 
-Requisito: Python **3.12+** e pip. Em Linux/macOS, na raiz do repositório:
+Requisito: Python **3.12 ou 3.13** e pip. Em Linux/macOS, na raiz do repositório:
 
 ```bash
 python3 -m venv .venv
@@ -223,7 +231,8 @@ consulta por execução. Os demais controles são metas de estudo, não garantia
 - Duas rotas, sem correção automática de argumentos ou loops.
 - A decisão de consultar é do modelo; não há garantia de que ele escolha a rota adequada.
 - A síntese pode conter erros do modelo; não há verificação semântica de suas afirmações.
-- A aprovação optativa da v0.5 usa checkpoint em memória, perdido ao encerrar o processo.
+- `app.main` usa checkpoint em memória; `app.persistent` usa PostgreSQL local,
+  permitindo retomar a aprovação após encerrar o processo.
 - Sem autenticação ou autorização; aprovação humana disponível no experimento da v0.5,
   sem efeitos externos
   ou tracing configurados. Há timeout de comunicação com o Ollama.
@@ -240,7 +249,7 @@ consulta por execução. Os demais controles são metas de estudo, não garantia
 | v0.2 | Tool calling |
 | v0.3 | Conditional routing — implementado |
 | v0.4 | Guardrails and execution limits — em andamento |
-| v0.5 | Human-in-the-loop — revisão na API e na CLI implementada |
+| v0.5 | Human-in-the-loop — revisão e persistência PostgreSQL local implementadas |
 | v0.6 | Agent evaluations |
 | v0.7 | Observability and tracing |
 | v1.0 | Complete incident investigation agent |
