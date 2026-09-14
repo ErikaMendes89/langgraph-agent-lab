@@ -14,25 +14,24 @@ e gere um relatório.”
 
 Na **v0.1**, comecei com um único nó para acompanhar a passagem do estado pelo grafo.
 Na **v0.2**, adicionei tool calling para consultar logs fictícios e resumir o resultado.
-Na **v0.3**, estou praticando roteamento condicional: o modelo pode responder diretamente
-ou solicitar a consulta. Ainda não há investigação de dados reais nem geração de arquivo
-de relatório. O exemplo inicial continua no modo `demo`. O primeiro incremento da **v0.4** adiciona
-timeout de comunicação e tratamento de falhas de conexão na CLI. O segundo adiciona
-uma nova tentativa por nó do modelo para falhas de conexão ou timeout. O terceiro
-limita a execução da CLI a 300 segundos, com cancelamento assíncrono.
+Na **v0.3**, adicionei roteamento condicional entre resposta direta e consulta. A **v0.4**
+adicionou allowlist, validações, retries limitados, timeouts e um prazo total de execução,
+além do contrato de ID para evitar investigações sem consulta e da resposta determinística
+quando não há logs.
 
-A **fase 5 (v0.5)** adiciona aprovação humana optativa na API do grafo e na CLI:
-checkpoint em memória, revisão da síntese e retomada para aprovar ou rejeitar um
-relatório simulado. Veja o [experimento completo](docs/human-in-the-loop.md).
+A **fase 5 (v0.5) está concluída**. Ela adiciona aprovação humana optativa na API do
+grafo e na CLI, checkpoint em memória, revisão da síntese e retomada para aprovar ou
+rejeitar um relatório simulado. A CLI persistente usa PostgreSQL com pgvector para
+retomadas entre processos. Veja o [experimento completo](docs/human-in-the-loop.md).
 
 No modo `ollama`, use `INCIDENT_LAB_REQUIRE_APPROVAL=true` para revisar o rascunho
 no terminal. Digite `sim` para liberar o relatório simulado; outra resposta rejeita.
 O tempo de leitura e decisão fica fora do orçamento de 300 segundos, compartilhado
 pela investigação e pela retomada. A aprovação não grava nem publica arquivos.
 
-O terceiro incremento adiciona **PostgreSQL com pgvector local** e checkpoints
-persistentes. `python -m app.persistent start` salva a investigação para revisão;
-`show` consulta e `resume` aprova ou rejeita em outra execução do programa.
+`python -m app.persistent start` salva a investigação para revisão; `show` consulta e
+`resume` aprova ou rejeita em outra execução do programa. `python -m app.documents`
+prepara, ingere e consulta o catálogo documental local.
 Veja a [preparação do banco e conexão pelo DBeaver](docs/postgres-local.md).
 O pgvector está habilitado e a fase de RAG inclui ingestão, embeddings locais e busca
 semântica. Consulte a [documentação do RAG](docs/rag.md) para o modelo das tabelas,
@@ -53,14 +52,21 @@ flowchart LR
     START --> agent
     agent -->|tool call| tools
     agent -->|resposta direta| END
-    tools --> summarize --> END
+    tools -->|sem RAG| summarize
+    tools -->|use_documents| documents --> summarize
+    summarize -->|sem aprovação| END
+    summarize --> review -->|aprovado| release --> END
+    review -->|rejeitado| END
 ```
 
-`app/main.py` lê a configuração e invoca o grafo. `app/agents/state.py` define os dados;
-`nodes.py` valida a solicitação e produz a resposta; `graph.py` conecta as etapas.
+`app/main.py` lê a configuração e invoca o grafo. `app/persistent.py` implementa a CLI
+com checkpoints PostgreSQL e `app/documents.py` implementa a CLI de ingestão e busca.
+`app/agents/state.py` define os dados; `nodes.py` valida a solicitação e produz a resposta;
+`graph.py` conecta as etapas.
 `app/core/config.py` concentra a leitura do ambiente e `app/core/model.py` configura
 o modelo local. `tool_nodes.py` chama o modelo, escolhe a rota e sintetiza as evidências;
-`app/tools/logs.py` contém `search_logs`. `evals/` permanece reservado para a v0.6.
+`app/tools/logs.py` contém `search_logs` e `app/tools/docs.py` integra o catálogo RAG.
+`evals/` permanece reservado para a v0.6.
 
 Sem falhas, na rota direta há uma chamada ao modelo e nenhuma ferramenta. Na rota de consulta há
 duas chamadas ao modelo e uma à ferramenta. Com retries, são no máximo duas tentativas
@@ -69,10 +75,10 @@ O modo `demo` mantém `START -> agent -> END`, sem usar LLM.
 
 ## Arquitetura planejada
 
-Nas próximas etapas, pretendo adicionar `get_customer`, `search_docs` e `create_report`
-e evoluir a consulta de logs. Também quero explorar limites de execução,
-aprovação humana, avaliações e rastreamento. Os contratos e as integrações ainda serão
-definidos conforme eu desenvolver cada etapa. Detalhei esse plano em
+Nas próximas etapas, pretendo adicionar avaliações de agentes e observabilidade, sem
+avançar neste fechamento para a v0.6. `get_customer`, `search_docs` e `create_report`
+continuam ideias futuras; não existem APIs ou regras de negócio para elas. Detalhei o
+plano em
 [architecture.md](docs/architecture.md).
 
 ## Como executar
@@ -195,9 +201,11 @@ python -m mypy
 
 Para formatar durante o desenvolvimento: `python -m ruff format .`.
 Os testes cobrem o exemplo básico, as duas rotas e seu término, tool calling, validação,
-ausência de logs, falhas do modelo e comportamento da CLI. O modelo usa respostas controladas;
-o grafo e a ferramenta executam de verdade, sem rede. Isso verifica a orquestração,
-mas não comprova a qualidade das respostas de um LLM real.
+ausência de logs, aprovação e retomada, persistência PostgreSQL, pgvector, ingestão e
+busca semântica, falhas do modelo e comportamento das CLIs. Com PostgreSQL/pgvector
+habilitado, a suíte completa atual passou com 152 testes. O modelo usa respostas
+controladas; isso verifica a orquestração e as integrações locais, mas não comprova a
+qualidade das respostas de um LLM real.
 
 ## Learning Goals
 
@@ -233,9 +241,9 @@ consulta por execução. Os demais controles são metas de estudo, não garantia
 - A síntese pode conter erros do modelo; não há verificação semântica de suas afirmações.
 - `app.main` usa checkpoint em memória; `app.persistent` usa PostgreSQL local,
   permitindo retomar a aprovação após encerrar o processo.
-- Sem autenticação ou autorização; aprovação humana disponível no experimento da v0.5,
-  sem efeitos externos
-  ou tracing configurados. Há timeout de comunicação com o Ollama.
+- Sem autenticação ou autorização de usuários; aprovação humana disponível na API local,
+  na CLI em memória e na CLI persistente, sem efeitos externos ou tracing configurados.
+  Há timeout de comunicação com o Ollama.
 - Validação básica da solicitação e schema da tool; TypedDict não valida estado em runtime.
 - Sem avaliações de qualidade de agentes, uso em produção ou métricas de tokens/custo.
 - Dependências têm faixas de versão, sem lockfile; instalações futuras podem resolver
@@ -248,16 +256,15 @@ consulta por execução. Os demais controles são metas de estudo, não garantia
 | v0.1 | Basic LangGraph — preservado no modo demo |
 | v0.2 | Tool calling |
 | v0.3 | Conditional routing — implementado |
-| v0.4 | Guardrails and execution limits — em andamento |
-| v0.5 | Human-in-the-loop — revisão e persistência PostgreSQL local implementadas |
+| v0.4 | Guardrails and execution limits — concluída |
+| v0.5 | Human-in-the-loop, PostgreSQL/pgvector e RAG local — concluída |
 | v0.6 | Agent evaluations |
 | v0.7 | Observability and tracing |
 | v1.0 | Complete incident investigation agent |
 
-Detalhes e critérios de conclusão em [roadmap.md](docs/roadmap.md).
-Os três cenários foram executados com Ollama: o pedido 123 e a solicitação sem ID
-seguiram o comportamento esperado, mas o pedido 456 recebeu uma afirmação sem consulta.
-O contrato de ID explícito e a orientação fixa corrigem a saída sem evidência.
+Detalhes, critérios e limitações conhecidas estão em [roadmap.md](docs/roadmap.md),
+[rag.md](docs/rag.md), [postgres-local.md](docs/postgres-local.md) e
+[human-in-the-loop.md](docs/human-in-the-loop.md).
 O histórico e a validação da correção estão em [validation-v0.4.md](docs/validation-v0.4.md).
 Os conceitos estudados estão nas
 [notas de estudo](docs/study-notes.md).

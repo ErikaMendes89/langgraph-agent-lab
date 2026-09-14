@@ -1,4 +1,5 @@
 import json
+from functools import wraps
 from typing import cast
 from unittest.mock import Mock
 
@@ -6,12 +7,13 @@ import pytest
 from httpx import ConnectError, ReadTimeout
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.tools import StructuredTool
 from langgraph.prebuilt.tool_node import ToolInvocationError
 from pydantic import ValidationError
 
 from app.agents.graph import build_graph
 from app.agents.tool_nodes import DIRECT_GUIDANCE, ModelResponseError
-from app.tools.logs import search_logs
+from app.tools.logs import SearchLogsResult, search_logs
 
 
 def tool_reply(order_id: str = "123") -> AIMessage:
@@ -224,10 +226,20 @@ def test_retry_exhaustion_does_not_use_a_third_attempt() -> None:
 
 
 def test_tool_failure_is_not_retried(monkeypatch: pytest.MonkeyPatch) -> None:
-    execute = Mock(side_effect=ConnectionError("tool failure"))
+    execute_calls = 0
+    original_execute = cast(StructuredTool, search_logs).func
+    if not callable(original_execute):
+        raise AssertionError("search_logs.func precisa ser chamável")
+
+    @wraps(original_execute)
+    def execute(order_id: str) -> SearchLogsResult:
+        nonlocal execute_calls
+        execute_calls += 1
+        raise ConnectionError("tool failure")
+
     monkeypatch.setattr(search_logs, "func", execute)
     model = scripted_model(tool_reply())
     with pytest.raises(ConnectionError, match="tool failure"):
         build_graph(cast(BaseChatModel, model)).invoke({"request": "pedido 123"})
-    assert execute.call_count == 1
+    assert execute_calls == 1
     assert model.invoke.call_count == 1

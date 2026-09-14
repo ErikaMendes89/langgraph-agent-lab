@@ -29,12 +29,14 @@ a rejeição encerra normalmente com código 0. Sem a opção, o fluxo anterior 
 O exemplo, o contrato de threads e os limites
 do checkpoint em memória estão em [human-in-the-loop.md](human-in-the-loop.md).
 
-## Escopo atual — v0.3 e incrementos da v0.4
+## Escopo atual — v0.5 concluída
 
 Laboratório educacional, sem alegação de experiência profissional ou uso em produção.
 O modo `demo` preserva `START -> agent -> END`, determinístico e sem LLM.
 O modo `ollama` usa uma aresta condicional após `agent`: uma tool call leva a
-`tools -> summarize -> END`; uma resposta direta leva a `END`. Não há loops.
+`tools -> documents -> summarize -> review -> release -> END` quando a aprovação
+e a recuperação documental estão habilitadas; sem elas, os nós correspondentes são
+omitidos. Uma resposta direta leva a `END`. Não há loops.
 
 | Arquivo/diretório | Responsabilidade |
 | --- | --- |
@@ -47,6 +49,9 @@ O modo `ollama` usa uma aresta condicional após `agent`: uma tool call leva a
 | `app/agents/tool_nodes.py` | Chamar o modelo, escolher a rota e formatar a saída |
 | `app/agents/graph.py` | Construir e compilar o grafo |
 | `app/tools/logs.py` | Schema estrito e consulta somente leitura a logs fictícios |
+| `app/tools/docs.py` | Ingestão idempotente e busca semântica no catálogo local |
+| `app/documents.py` | CLI para preparar, ingerir e consultar documentos |
+| `app/persistent.py` | CLI para checkpoints PostgreSQL e aprovação entre processos |
 | `tests/` | Testes determinísticos de comportamento |
 | `evals/` | Reserva para avaliações futuras |
 
@@ -131,11 +136,11 @@ sem ferramenta é apresentada como investigação. O campo estruturado é a font
 de verdade quando houver divergência com o texto. A correspondência do ID e a
 consulta obrigatória não garantem correção semântica da síntese.
 
-## Evolução planejada
+## Evolução planejada após a v0.5
 
 `get_customer`, `search_docs` e `create_report` continuam planejadas, sem APIs ou
-regras de negócio definidas. As versões seguintes estudarão
-validação, orçamento de execução, aprovação humana, avaliação e tracing.
+regras de negócio definidas. A v0.6 estudará avaliações de agentes; fases seguintes
+podem estudar tracing e observabilidade.
 Persistência e efeitos externos exigirão decisões sobre autorização, idempotência,
 retenção e recuperação de falhas antes de sua implementação.
 

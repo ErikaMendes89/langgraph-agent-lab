@@ -1,4 +1,5 @@
 import asyncio
+from functools import wraps
 from typing import cast
 from unittest.mock import AsyncMock, Mock
 
@@ -13,7 +14,7 @@ from langgraph.types import Command
 from app.agents.approval import release_report
 from app.agents.graph import build_graph
 from app.agents.state import InvestigationState
-from app.tools.logs import search_logs
+from app.tools.logs import SearchLogsResult, search_logs
 
 
 def model_for_review(order_id: str = "123") -> Mock:
@@ -36,7 +37,17 @@ def model_for_review(order_id: str = "123") -> Mock:
 def test_review_resume_does_not_repeat_investigation(
     approved: bool, asynchronous: bool, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    query = Mock(wraps=cast(StructuredTool, search_logs).func)
+    query_calls = 0
+    original_query = cast(StructuredTool, search_logs).func
+    if not callable(original_query):
+        raise AssertionError("search_logs.func precisa ser chamável")
+
+    @wraps(original_query)
+    def query(order_id: str) -> SearchLogsResult:
+        nonlocal query_calls
+        query_calls += 1
+        return cast(SearchLogsResult, original_query(order_id))
+
     monkeypatch.setattr(search_logs, "func", query)
     model = model_for_review()
     graph = build_graph(
@@ -65,7 +76,7 @@ def test_review_resume_does_not_repeat_investigation(
         assert graph.get_state(config).next == ()
 
     asyncio.run(scenario())
-    assert query.call_count == 1
+    assert query_calls == 1
     assert (model.ainvoke if asynchronous else model.invoke).call_count == 2
 
 
