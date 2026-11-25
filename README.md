@@ -12,6 +12,18 @@ Meu objetivo é construir progressivamente um **Incident Investigation Agent** c
 receber uma solicitação como: “Investigue por que o pedido 123 apresentou inconsistência
 e gere um relatório.”
 
+## Por onde começar
+
+Siga os [três experimentos guiados](docs/first-experiments.md). Você vai executar
+um grafo de um nó, comparar um pedido com logs fictícios a outro sem registros
+e ver como o rascunho pausa para aprovação. A trilha usa o modo demo e testes
+com respostas controladas. Basta um ambiente Python com as dependências do projeto.
+
+Consulte o [índice da documentação](docs/README.md) para aprofundar em arquitetura,
+Ollama, RAG e persistência.
+
+## Evolução do laboratório
+
 Na **v0.1**, comecei com um único nó para acompanhar a passagem do estado pelo grafo.
 Na **v0.2**, adicionei tool calling para consultar logs fictícios e resumir o resultado.
 Na **v0.3**, adicionei roteamento condicional entre resposta direta e consulta. A **v0.4**
@@ -230,8 +242,9 @@ um sistema real. Ao longo das próximas versões, pretendo estudar:
 - **Latency**, **token usage** e **cost**: medição de latência, tokens e custo.
 - **Prompt injection** e **segurança de tools**: entradas não confiáveis e proteção de integrações.
 
-Já existe validação dos argumentos, apenas uma ferramenta registrada e no máximo uma
-consulta por execução. Os demais controles são metas de estudo, não garantias já implementadas.
+A v0.5 valida os argumentos, limita as tentativas e permite revisão humana opcional.
+O fluxo consulta a ferramenta de logs no máximo uma vez por execução. Avaliação
+sistemática e tracing continuam no roadmap.
 
 ## Limitações
 
