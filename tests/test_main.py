@@ -1,3 +1,5 @@
+import subprocess
+import sys
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -49,6 +51,22 @@ def test_main_reports_configuration_error(
 def test_default_mode_does_not_require_ollama() -> None:
     assert get_mode() == "demo"
     assert get_model_name() == "qwen3:1.7b"
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import sys\n"
+            "sys.modules['langchain_ollama'] = None\n"
+            "from app.main import main\n"
+            "raise SystemExit(main())",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "nenhuma investigação foi realizada" in result.stdout
 
 
 def test_invalid_mode(monkeypatch: pytest.MonkeyPatch) -> None:
